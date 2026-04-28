@@ -178,6 +178,8 @@ The Artefacts view generates the five alpha artefact types from selected project
 
 Search / Ask uses the configured embedding model to index local captures, projects, decisions, tasks, questions, sources, and artefacts into the local `embeddings` table. The Search screen can run semantic search with keyword fallback, answer grounded questions from retrieved local context, and generate a project recall summary for "Where did I get to?".
 
+Settings includes the alpha demo path, provider setup prompts, keyboard navigation hints, and a local SQLite backup export for local-first confidence.
+
 Build:
 
 ```bash
@@ -212,6 +214,7 @@ Start with:
 - [docs/scope.md](docs/scope.md) for product scope, positioning, core workflows, and alpha boundaries.
 - [docs/ui.md](docs/ui.md) for the alpha UI foundation and component guidance.
 - [docs/plans/00-alpha-roadmap.md](docs/plans/00-alpha-roadmap.md) for the alpha roadmap and phase order.
+- [docs/demo.md](docs/demo.md) for the alpha demo script.
 
 Phase plans:
 

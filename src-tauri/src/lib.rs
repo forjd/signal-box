@@ -381,6 +381,12 @@ struct DatabaseHealth {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct BackupExport {
+    path: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct AppMetadata {
     product_name: &'static str,
     package_name: &'static str,
@@ -651,6 +657,14 @@ fn migration_count(connection: &Connection) -> Result<usize, DatabaseError> {
 
 fn display_path(path: &Path) -> String {
     path.to_string_lossy().into_owned()
+}
+
+fn backup_timestamp() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .to_string()
 }
 
 fn now_id() -> String {
@@ -1199,6 +1213,28 @@ fn database_health(state: tauri::State<'_, AppState>) -> Result<DatabaseHealth, 
             startup_error: Some(error.clone()),
         },
     })
+}
+
+#[tauri::command]
+fn export_database_backup(state: tauri::State<'_, AppState>) -> Result<BackupExport, String> {
+    let database = state
+        .database
+        .lock()
+        .map_err(|_| "database state lock was poisoned".to_string())?;
+
+    match &*database {
+        DatabaseState::Ready(database) => {
+            let backup_path = database
+                .app_data_dir
+                .join(format!("signal-box-backup-{}.sqlite3", backup_timestamp()));
+            fs::copy(&database.database_path, &backup_path)
+                .map_err(|error| format!("could not export database backup: {error}"))?;
+            Ok(BackupExport {
+                path: display_path(&backup_path),
+            })
+        }
+        DatabaseState::Failed(error) => Err(error.clone()),
+    }
 }
 
 #[tauri::command]
@@ -3593,6 +3629,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             database_health,
+            export_database_backup,
             app_metadata,
             create_capture,
             list_captures,

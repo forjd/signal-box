@@ -9,6 +9,10 @@ export type DatabaseHealth = {
   startupError: string | null;
 };
 
+export type BackupExport = {
+  path: string;
+};
+
 export type AppMetadata = {
   productName: string;
   packageName: string;
@@ -286,6 +290,10 @@ export type AskAnswer = {
 
 export function getDatabaseHealth() {
   return invoke<DatabaseHealth>("database_health");
+}
+
+export function exportDatabaseBackup() {
+  return invoke<BackupExport>("export_database_backup");
 }
 
 export function getAppMetadata() {

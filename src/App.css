@@ -838,6 +838,21 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.setup-callout {
+  display: grid;
+  gap: 6px;
+  margin-top: 16px;
+  border: 1px solid #cdd5cc;
+  border-radius: 8px;
+  background: #f6f8f3;
+  padding: 12px;
+}
+
+.setup-callout p {
+  margin: 0;
+  color: #4e565f;
+}
+
 .detail-list {
   display: grid;
   gap: 14px;

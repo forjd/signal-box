@@ -36,6 +36,7 @@ import {
   createCapture,
   createProject,
   createSource,
+  exportDatabaseBackup,
   generateArtefact,
   getCaptureDistillation,
   getAppMetadata,
@@ -240,6 +241,28 @@ function MainWindow() {
     loadFoundationState();
   }, []);
 
+  useEffect(() => {
+    function handleShortcut(event: KeyboardEvent) {
+      if (!(event.metaKey || event.ctrlKey)) {
+        return;
+      }
+
+      const route = routes[Number(event.key) - 1];
+      if (route) {
+        event.preventDefault();
+        setActiveRoute(route.id);
+      }
+
+      if (event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setActiveRoute("search");
+      }
+    }
+
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, []);
+
   const currentRoute = useMemo(
     () => routes.find((route) => route.id === activeRoute) ?? routes[0],
     [activeRoute],
@@ -358,6 +381,7 @@ function MainWindow() {
               data-active={route.id === activeRoute}
               key={route.id}
               onClick={() => setActiveRoute(route.id)}
+              title={`Command/Ctrl+${routes.findIndex((item) => item.id === route.id) + 1}`}
               type="button"
               variant="ghost"
             >
@@ -2388,6 +2412,7 @@ function SettingsView({
 }) {
   return (
     <div className="settings-grid">
+      <AlphaReadinessCard />
       <ProviderSettingsCard />
 
       <Card aria-labelledby="database-heading">
@@ -2466,6 +2491,48 @@ function SettingsView({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function AlphaReadinessCard() {
+  const [exporting, setExporting] = useState(false);
+  const [backupPath, setBackupPath] = useState<string | null>(null);
+
+  async function exportBackup() {
+    setExporting(true);
+    try {
+      const backup = await exportDatabaseBackup();
+      setBackupPath(backup.path);
+      toast.success("Backup exported");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return (
+    <Card className="provider-card" aria-labelledby="alpha-readiness-heading">
+      <CardHeader>
+        <CardTitle id="alpha-readiness-heading">Alpha Readiness</CardTitle>
+      </CardHeader>
+      <Separator />
+      <CardContent>
+        <div className="setup-callout">
+          <strong>Demo path</strong>
+          <p>
+            Configure a provider, capture messy project context, process it, attach it to project
+            memory, generate an artefact, then ask Search / Ask where the project left off.
+          </p>
+        </div>
+        <div className="provider-actions">
+          <Button type="button" variant="outline" onClick={exportBackup} disabled={exporting}>
+            Export local backup
+          </Button>
+          {backupPath && <p className="provider-test-message">{backupPath}</p>}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -2552,6 +2619,17 @@ function ProviderSettingsCard() {
                 <Badge variant="outline">API key saved</Badge>
               )}
             </div>
+
+            {form.providerType !== "ollama" && !state.data.hasApiKey && (
+              <div className="setup-callout">
+                <strong>First-run setup</strong>
+                <p>
+                  Add your API key and chat model here before processing captures, generating
+                  artefacts, or asking questions. Add an embedding model before indexing Search /
+                  Ask.
+                </p>
+              </div>
+            )}
 
             <div className="settings-form-grid">
               <div className="form-field">
