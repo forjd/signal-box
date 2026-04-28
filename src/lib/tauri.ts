@@ -48,6 +48,24 @@ export type ProjectOption = {
   name: string;
 };
 
+export type ProjectRecord = {
+  id: string;
+  name: string;
+  description: string | null;
+  overview: string;
+  currentDirection: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SaveProjectInput = {
+  name: string;
+  description: string | null;
+  overview: string | null;
+  currentDirection: string | null;
+};
+
 export type CreateCaptureInput = {
   rawText: string;
   captureType: CaptureType;
@@ -99,9 +117,12 @@ export type DistilledQuestion = {
 export type DistilledSource = {
   id: string;
   title: string;
+  kind: string;
   sourceType: string;
   url: string | null;
+  rawExcerpt: string | null;
   rawReference: string | null;
+  notes: string | null;
 };
 
 export type CaptureDistillation = {
@@ -110,6 +131,89 @@ export type CaptureDistillation = {
   decisions: DistilledDecision[];
   questions: DistilledQuestion[];
   sources: DistilledSource[];
+};
+
+export type ProjectTask = {
+  id: string;
+  captureId: string | null;
+  captureTitle: string | null;
+  title: string;
+  description: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectDecision = {
+  id: string;
+  captureId: string | null;
+  captureTitle: string | null;
+  title: string;
+  context: string | null;
+  decision: string;
+  rationale: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectQuestion = {
+  id: string;
+  captureId: string | null;
+  captureTitle: string | null;
+  question: string;
+  answer: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectSource = {
+  id: string;
+  projectId: string | null;
+  captureId: string | null;
+  captureTitle: string | null;
+  title: string;
+  kind: string;
+  url: string | null;
+  rawExcerpt: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectArtefact = {
+  id: string;
+  title: string;
+  artefactType: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectMemory = {
+  project: ProjectRecord;
+  captures: Capture[];
+  tasks: ProjectTask[];
+  decisions: ProjectDecision[];
+  questions: ProjectQuestion[];
+  sources: ProjectSource[];
+  artefacts: ProjectArtefact[];
+};
+
+export type SaveTaskInput = Pick<ProjectTask, "title" | "description" | "status">;
+export type SaveDecisionInput = Pick<
+  ProjectDecision,
+  "title" | "context" | "decision" | "rationale" | "status"
+>;
+export type SaveQuestionInput = Pick<ProjectQuestion, "question" | "answer" | "status">;
+export type SaveSourceInput = {
+  projectId: string | null;
+  captureId: string | null;
+  title: string;
+  kind: string;
+  url: string | null;
+  rawExcerpt: string | null;
+  notes: string | null;
 };
 
 export function getDatabaseHealth() {
@@ -132,12 +236,52 @@ export function listProjects() {
   return invoke<ProjectOption[]>("list_projects");
 }
 
+export function listProjectRecords() {
+  return invoke<ProjectRecord[]>("list_project_records");
+}
+
+export function createProject(input: SaveProjectInput) {
+  return invoke<ProjectRecord>("create_project", { input });
+}
+
+export function updateProject(id: string, input: SaveProjectInput) {
+  return invoke<ProjectRecord>("update_project", { id, input });
+}
+
+export function getProjectMemory(id: string) {
+  return invoke<ProjectMemory>("get_project_memory", { id });
+}
+
 export function updateCaptureStatus(id: string, status: CaptureStatus) {
   return invoke<Capture>("update_capture_status", { id, status });
 }
 
 export function updateCaptureProject(id: string, projectId: string | null) {
   return invoke<Capture>("update_capture_project", { id, projectId });
+}
+
+export function acceptSuggestedProject(id: string) {
+  return invoke<Capture>("accept_suggested_project", { id });
+}
+
+export function updateTask(id: string, input: SaveTaskInput) {
+  return invoke<void>("update_task", { id, input });
+}
+
+export function updateDecision(id: string, input: SaveDecisionInput) {
+  return invoke<void>("update_decision", { id, input });
+}
+
+export function updateQuestion(id: string, input: SaveQuestionInput) {
+  return invoke<void>("update_question", { id, input });
+}
+
+export function createSource(input: SaveSourceInput) {
+  return invoke<ProjectSource>("create_source", { input });
+}
+
+export function updateSource(id: string, input: SaveSourceInput) {
+  return invoke<ProjectSource>("update_source", { id, input });
 }
 
 export function getProviderSettings() {

@@ -4,6 +4,8 @@ import {
   CheckCircle2,
   ExternalLink,
   Inbox,
+  Link2,
+  FolderPlus,
   PanelTopOpen,
   RefreshCw,
   Save,
@@ -26,21 +28,32 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  acceptSuggestedProject,
   createCapture,
+  createProject,
+  createSource,
   getCaptureDistillation,
   getAppMetadata,
   getDatabaseHealth,
+  getProjectMemory,
   getProviderSettings,
   listCaptures,
+  listProjectRecords,
   listProjects,
   processCapture,
   saveProviderSettings,
   showQuickCapture,
   testProviderSettings,
+  updateDecision,
   updateCaptureProject,
   updateCaptureStatus,
+  updateProject,
+  updateQuestion,
+  updateSource,
+  updateTask,
   type AppMetadata,
   type Capture,
   type CaptureDistillation,
@@ -51,10 +64,22 @@ import {
   type DistilledQuestion,
   type DistilledSource,
   type DistilledTask,
+  type ProjectDecision,
+  type ProjectMemory,
   type ProviderSettings,
   type ProviderSettingsInput,
   type ProviderType,
+  type ProjectArtefact,
   type ProjectOption,
+  type ProjectQuestion,
+  type ProjectRecord,
+  type ProjectSource,
+  type ProjectTask,
+  type SaveDecisionInput,
+  type SaveProjectInput,
+  type SaveQuestionInput,
+  type SaveSourceInput,
+  type SaveTaskInput,
   type SourceKind,
 } from "./lib/tauri";
 import "./App.css";
@@ -89,8 +114,8 @@ const routes: Array<{ id: RouteId; label: string; eyebrow: string; title: string
       id: "memory",
       label: "Project Memory",
       eyebrow: "Recall",
-      title: "Project memory is ready for structure",
-      body: "Later phases will attach distilled context to editable project memory.",
+      title: "No project selected",
+      body: "Create a project or choose one from the project memory list to review its captured context.",
     },
     {
       id: "artefacts",
@@ -155,28 +180,38 @@ function MainWindow() {
   const [metadata, setMetadata] = useState<LoadState<AppMetadata>>({ status: "loading" });
   const [captures, setCaptures] = useState<LoadState<Capture[]>>({ status: "loading" });
   const [projects, setProjects] = useState<LoadState<ProjectOption[]>>({ status: "loading" });
+  const [projectRecords, setProjectRecords] = useState<LoadState<ProjectRecord[]>>({
+    status: "loading",
+  });
   const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
   async function loadFoundationState() {
     try {
-      const [health, appMetadata, unprocessedCaptures, projectOptions] = await Promise.all([
-        getDatabaseHealth(),
-        getAppMetadata(),
-        listCaptures("unprocessed"),
-        listProjects(),
-      ]);
+      const [health, appMetadata, unprocessedCaptures, projectOptions, records] = await Promise.all(
+        [
+          getDatabaseHealth(),
+          getAppMetadata(),
+          listCaptures("unprocessed"),
+          listProjects(),
+          listProjectRecords(),
+        ],
+      );
 
       setDatabaseHealth({ status: "ready", data: health });
       setMetadata({ status: "ready", data: appMetadata });
       setCaptures({ status: "ready", data: unprocessedCaptures });
       setProjects({ status: "ready", data: projectOptions });
+      setProjectRecords({ status: "ready", data: records });
       setSelectedCaptureId((current) => current ?? unprocessedCaptures[0]?.id ?? null);
+      setSelectedProjectId((current) => current ?? records[0]?.id ?? null);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setDatabaseHealth({ status: "error", message });
       setMetadata({ status: "error", message });
       setCaptures({ status: "error", message });
       setProjects({ status: "error", message });
+      setProjectRecords({ status: "error", message });
     }
   }
 
@@ -210,6 +245,19 @@ function MainWindow() {
     });
   }
 
+  async function refreshProjects() {
+    const [projectOptions, records] = await Promise.all([listProjects(), listProjectRecords()]);
+    setProjects({ status: "ready", data: projectOptions });
+    setProjectRecords({ status: "ready", data: records });
+    setSelectedProjectId((current) => {
+      if (current && records.some((project) => project.id === current)) {
+        return current;
+      }
+
+      return records[0]?.id ?? null;
+    });
+  }
+
   async function archiveCapture(id: string) {
     try {
       await updateCaptureStatus(id, "archived");
@@ -240,6 +288,18 @@ function MainWindow() {
             }
           : current,
       );
+      await refreshProjects();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function acceptCaptureProject(id: string) {
+    try {
+      const updated = await acceptSuggestedProject(id);
+      replaceCapture(updated);
+      await refreshProjects();
+      toast.success("Suggested project accepted");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     }
@@ -306,6 +366,25 @@ function MainWindow() {
         </header>
 
         {activeRoute === "settings" && <SettingsView health={databaseHealth} metadata={metadata} />}
+        {activeRoute === "projects" && (
+          <ProjectsView
+            state={projectRecords}
+            selectedProjectId={selectedProjectId}
+            onRefresh={refreshProjects}
+            onSelect={(id) => {
+              setSelectedProjectId(id);
+              setActiveRoute("memory");
+            }}
+          />
+        )}
+        {activeRoute === "memory" && (
+          <ProjectMemoryView
+            projects={projectRecords}
+            selectedProjectId={selectedProjectId}
+            onRefreshProjects={refreshProjects}
+            onSelectProject={setSelectedProjectId}
+          />
+        )}
         {activeRoute === "inbox" && (
           <InboxView
             captures={captures}
@@ -317,12 +396,16 @@ function MainWindow() {
             onSelect={setSelectedCaptureId}
             onStatusChange={changeCaptureStatus}
             onProjectChange={changeCaptureProject}
+            onAcceptSuggestion={acceptCaptureProject}
             onCaptureChange={replaceCapture}
           />
         )}
-        {activeRoute !== "settings" && activeRoute !== "inbox" && (
-          <EmptyState title={currentRoute.title} body={currentRoute.body} />
-        )}
+        {activeRoute !== "settings" &&
+          activeRoute !== "inbox" &&
+          activeRoute !== "projects" &&
+          activeRoute !== "memory" && (
+            <EmptyState title={currentRoute.title} body={currentRoute.body} />
+          )}
       </section>
     </main>
   );
@@ -468,6 +551,7 @@ function InboxView({
   onSelect,
   onStatusChange,
   onProjectChange,
+  onAcceptSuggestion,
   onCaptureChange,
 }: {
   captures: LoadState<Capture[]>;
@@ -479,6 +563,7 @@ function InboxView({
   onSelect: (id: string) => void;
   onStatusChange: (id: string, status: CaptureStatus) => void;
   onProjectChange: (id: string, projectId: string | null) => void;
+  onAcceptSuggestion: (id: string) => void;
   onCaptureChange: (capture: Capture) => void;
 }) {
   if (captures.status === "loading") {
@@ -551,6 +636,7 @@ function InboxView({
           onArchive={onArchive}
           onStatusChange={onStatusChange}
           onProjectChange={onProjectChange}
+          onAcceptSuggestion={onAcceptSuggestion}
           onCaptureChange={onCaptureChange}
         />
       )}
@@ -564,6 +650,7 @@ function CaptureDetail({
   onArchive,
   onStatusChange,
   onProjectChange,
+  onAcceptSuggestion,
   onCaptureChange,
 }: {
   capture: Capture;
@@ -571,6 +658,7 @@ function CaptureDetail({
   onArchive: (id: string) => void;
   onStatusChange: (id: string, status: CaptureStatus) => void;
   onProjectChange: (id: string, projectId: string | null) => void;
+  onAcceptSuggestion: (id: string) => void;
   onCaptureChange: (capture: Capture) => void;
 }) {
   const projectOptions = projects.status === "ready" ? projects.data : [];
@@ -683,6 +771,19 @@ function CaptureDetail({
           </span>
         )}
       </div>
+
+      {capture.suggestedProjectId && capture.projectId !== capture.suggestedProjectId && (
+        <div className="suggestion-panel">
+          <div>
+            <p className="eyebrow">Suggested project</p>
+            <strong>{capture.suggestedProjectName ?? "Matched project"}</strong>
+          </div>
+          <Button type="button" variant="outline" onClick={() => onAcceptSuggestion(capture.id)}>
+            <Link2 aria-hidden="true" />
+            Accept
+          </Button>
+        </div>
+      )}
 
       {capture.processingError && (
         <div className="detail-alert">
@@ -933,6 +1034,696 @@ function MetadataSummary({ state }: { state: LoadState<AppMetadata> }) {
       <span>v{state.data.version}</span>
       <span>{state.data.quickCaptureHotkey}</span>
     </div>
+  );
+}
+
+function ProjectsView({
+  state,
+  selectedProjectId,
+  onRefresh,
+  onSelect,
+}: {
+  state: LoadState<ProjectRecord[]>;
+  selectedProjectId: string | null;
+  onRefresh: () => void;
+  onSelect: (id: string) => void;
+}) {
+  const [creating, setCreating] = useState(false);
+
+  if (state.status === "loading") {
+    return <LoadingState label="Loading projects" />;
+  }
+
+  if (state.status === "error") {
+    return <ErrorState title="Projects unavailable" message={state.message} />;
+  }
+
+  return (
+    <div className="project-directory">
+      <section className="project-panel">
+        <div className="list-toolbar">
+          <div>
+            <p className="eyebrow">Projects</p>
+            <h2>{state.data.length} active</h2>
+          </div>
+          <div className="detail-actions">
+            <Button type="button" variant="outline" size="sm" onClick={onRefresh}>
+              <RefreshCw aria-hidden="true" />
+              Refresh
+            </Button>
+            <Button type="button" size="sm" onClick={() => setCreating((current) => !current)}>
+              <FolderPlus aria-hidden="true" />
+              New
+            </Button>
+          </div>
+        </div>
+        {creating && (
+          <ProjectForm
+            onSaved={async () => {
+              setCreating(false);
+              await onRefresh();
+            }}
+          />
+        )}
+        {state.data.length === 0 ? (
+          <div className="panel-empty">
+            <EmptyState
+              kicker="Project memory"
+              title="No projects yet"
+              body="Create a project before attaching captures and extracted objects."
+            />
+          </div>
+        ) : (
+          <div className="project-list">
+            {state.data.map((project) => (
+              <button
+                className="project-row"
+                data-active={project.id === selectedProjectId}
+                key={project.id}
+                onClick={() => onSelect(project.id)}
+                type="button"
+              >
+                <strong>{project.name}</strong>
+                <span>{project.description || project.overview || "No overview yet"}</span>
+                <small>Updated {formatAge(project.updatedAt)}</small>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ProjectForm({
+  project,
+  onSaved,
+}: {
+  project?: ProjectRecord;
+  onSaved: (project: ProjectRecord) => void | Promise<void>;
+}) {
+  const [form, setForm] = useState<SaveProjectInput>({
+    name: project?.name ?? "",
+    description: project?.description ?? "",
+    overview: project?.overview ?? "",
+    currentDirection: project?.currentDirection ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const saved = project ? await updateProject(project.id, form) : await createProject(form);
+      toast.success(project ? "Project updated" : "Project created");
+      await onSaved(saved);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="project-form">
+      <label className="form-field" htmlFor={`project-name-${project?.id ?? "new"}`}>
+        <span>Name</span>
+        <Input
+          id={`project-name-${project?.id ?? "new"}`}
+          value={form.name}
+          onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+        />
+      </label>
+      <label className="form-field" htmlFor={`project-description-${project?.id ?? "new"}`}>
+        <span>Description</span>
+        <Input
+          id={`project-description-${project?.id ?? "new"}`}
+          value={form.description ?? ""}
+          onChange={(event) =>
+            setForm((current) => ({ ...current, description: event.target.value }))
+          }
+        />
+      </label>
+      <label
+        className="form-field wide-field"
+        htmlFor={`project-direction-${project?.id ?? "new"}`}
+      >
+        <span>Current direction</span>
+        <Textarea
+          id={`project-direction-${project?.id ?? "new"}`}
+          value={form.currentDirection ?? ""}
+          onChange={(event) =>
+            setForm((current) => ({ ...current, currentDirection: event.target.value }))
+          }
+        />
+      </label>
+      <label className="form-field wide-field" htmlFor={`project-overview-${project?.id ?? "new"}`}>
+        <span>Overview</span>
+        <Textarea
+          id={`project-overview-${project?.id ?? "new"}`}
+          value={form.overview ?? ""}
+          onChange={(event) => setForm((current) => ({ ...current, overview: event.target.value }))}
+        />
+      </label>
+      <div className="form-actions">
+        <Button type="button" onClick={save} disabled={saving || !form.name.trim()}>
+          <Save aria-hidden="true" />
+          Save
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ProjectMemoryView({
+  projects,
+  selectedProjectId,
+  onSelectProject,
+  onRefreshProjects,
+}: {
+  projects: LoadState<ProjectRecord[]>;
+  selectedProjectId: string | null;
+  onSelectProject: (id: string) => void;
+  onRefreshProjects: () => void;
+}) {
+  const [memory, setMemory] = useState<LoadState<ProjectMemory>>({ status: "loading" });
+
+  const projectOptions = projects.status === "ready" ? projects.data : [];
+  const activeProjectId = selectedProjectId ?? projectOptions[0]?.id ?? null;
+
+  const loadMemory = useCallback(async () => {
+    if (!activeProjectId) {
+      setMemory({ status: "ready", data: emptyProjectMemory() });
+      return;
+    }
+
+    setMemory({ status: "loading" });
+    try {
+      setMemory({ status: "ready", data: await getProjectMemory(activeProjectId) });
+    } catch (error) {
+      setMemory({
+        status: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    loadMemory();
+  }, [loadMemory]);
+
+  if (projects.status === "loading" || memory.status === "loading") {
+    return <LoadingState label="Loading project memory" />;
+  }
+
+  if (projects.status === "error") {
+    return <ErrorState title="Projects unavailable" message={projects.message} />;
+  }
+
+  if (memory.status === "error") {
+    return <ErrorState title="Project memory unavailable" message={memory.message} />;
+  }
+
+  if (!activeProjectId || memory.data.project.id === "") {
+    return (
+      <EmptyState title="No project selected" body="Create a project before building memory." />
+    );
+  }
+
+  const data = memory.data;
+
+  async function reload() {
+    await Promise.all([loadMemory(), onRefreshProjects()]);
+  }
+
+  return (
+    <div className="project-memory-layout">
+      <aside className="project-memory-list" aria-label="Project memory list">
+        {projectOptions.map((project) => (
+          <button
+            className="project-row"
+            data-active={project.id === activeProjectId}
+            key={project.id}
+            onClick={() => onSelectProject(project.id)}
+            type="button"
+          >
+            <strong>{project.name}</strong>
+            <span>{project.description || "No description"}</span>
+          </button>
+        ))}
+      </aside>
+
+      <section className="project-memory-panel">
+        <header className="detail-header">
+          <div>
+            <p className="eyebrow">Project memory</p>
+            <h2>{data.project.name}</h2>
+          </div>
+          <Button type="button" variant="outline" onClick={reload}>
+            <RefreshCw aria-hidden="true" />
+            Refresh
+          </Button>
+        </header>
+
+        <Tabs defaultValue="overview" className="memory-tabs">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="captures">Captures</TabsTrigger>
+            <TabsTrigger value="decisions">Decisions</TabsTrigger>
+            <TabsTrigger value="tasks">Tasks</TabsTrigger>
+            <TabsTrigger value="sources">Sources</TabsTrigger>
+            <TabsTrigger value="artefacts">Artefacts</TabsTrigger>
+            <TabsTrigger value="questions">Questions</TabsTrigger>
+          </TabsList>
+          <TabsContent value="overview">
+            <ProjectForm project={data.project} onSaved={reload} />
+          </TabsContent>
+          <TabsContent value="captures">
+            <ProjectCaptures captures={data.captures} />
+          </TabsContent>
+          <TabsContent value="decisions">
+            <DecisionList items={data.decisions} onSaved={reload} />
+          </TabsContent>
+          <TabsContent value="tasks">
+            <TaskList items={data.tasks} onSaved={reload} />
+          </TabsContent>
+          <TabsContent value="sources">
+            <SourceList
+              projectId={data.project.id}
+              captures={data.captures}
+              items={data.sources}
+              onSaved={reload}
+            />
+          </TabsContent>
+          <TabsContent value="artefacts">
+            <ArtefactList items={data.artefacts} />
+          </TabsContent>
+          <TabsContent value="questions">
+            <QuestionList items={data.questions} onSaved={reload} />
+          </TabsContent>
+        </Tabs>
+      </section>
+    </div>
+  );
+}
+
+function emptyProjectMemory(): ProjectMemory {
+  return {
+    project: {
+      id: "",
+      name: "",
+      description: null,
+      overview: "",
+      currentDirection: "",
+      status: "active",
+      createdAt: "",
+      updatedAt: "",
+    },
+    captures: [],
+    tasks: [],
+    decisions: [],
+    questions: [],
+    sources: [],
+    artefacts: [],
+  };
+}
+
+function ProjectCaptures({ captures }: { captures: Capture[] }) {
+  if (captures.length === 0) {
+    return <p className="muted-copy">No captures are attached to this project.</p>;
+  }
+
+  return (
+    <div className="structured-list">
+      {captures.map((capture) => (
+        <article className="object-item" key={capture.id}>
+          <strong>{capture.title || fallbackTitle(capture.rawText)}</strong>
+          {capture.summary && <p>{capture.summary}</p>}
+          <small>{capture.rawText}</small>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function TaskList({ items, onSaved }: { items: ProjectTask[]; onSaved: () => void }) {
+  return (
+    <StructuredList empty="No tasks have been attached to this project.">
+      {items.map((item) => (
+        <TaskEditor key={item.id} item={item} onSaved={onSaved} />
+      ))}
+    </StructuredList>
+  );
+}
+
+function TaskEditor({ item, onSaved }: { item: ProjectTask; onSaved: () => void }) {
+  const [form, setForm] = useState<SaveTaskInput>({
+    title: item.title,
+    description: item.description,
+    status: item.status,
+  });
+  return (
+    <EditableObject
+      provenance={item.captureTitle}
+      onSave={async () => {
+        await updateTask(item.id, form);
+        toast.success("Task updated");
+        onSaved();
+      }}
+    >
+      <Input
+        value={form.title}
+        onChange={(event) => setForm({ ...form, title: event.target.value })}
+      />
+      <Textarea
+        value={form.description ?? ""}
+        onChange={(event) => setForm({ ...form, description: event.target.value })}
+      />
+      <Input
+        value={form.status}
+        onChange={(event) => setForm({ ...form, status: event.target.value })}
+      />
+    </EditableObject>
+  );
+}
+
+function DecisionList({ items, onSaved }: { items: ProjectDecision[]; onSaved: () => void }) {
+  return (
+    <StructuredList empty="No decisions have been attached to this project.">
+      {items.map((item) => (
+        <DecisionEditor key={item.id} item={item} onSaved={onSaved} />
+      ))}
+    </StructuredList>
+  );
+}
+
+function DecisionEditor({ item, onSaved }: { item: ProjectDecision; onSaved: () => void }) {
+  const [form, setForm] = useState<SaveDecisionInput>({
+    title: item.title,
+    context: item.context,
+    decision: item.decision,
+    rationale: item.rationale,
+    status: item.status,
+  });
+  return (
+    <EditableObject
+      provenance={item.captureTitle}
+      onSave={async () => {
+        await updateDecision(item.id, form);
+        toast.success("Decision updated");
+        onSaved();
+      }}
+    >
+      <Input
+        value={form.title}
+        onChange={(event) => setForm({ ...form, title: event.target.value })}
+      />
+      <Textarea
+        value={form.context ?? ""}
+        onChange={(event) => setForm({ ...form, context: event.target.value })}
+      />
+      <Textarea
+        value={form.decision}
+        onChange={(event) => setForm({ ...form, decision: event.target.value })}
+      />
+      <Textarea
+        value={form.rationale ?? ""}
+        onChange={(event) => setForm({ ...form, rationale: event.target.value })}
+      />
+      <Input
+        value={form.status}
+        onChange={(event) => setForm({ ...form, status: event.target.value })}
+      />
+    </EditableObject>
+  );
+}
+
+function QuestionList({ items, onSaved }: { items: ProjectQuestion[]; onSaved: () => void }) {
+  return (
+    <StructuredList empty="No questions have been attached to this project.">
+      {items.map((item) => (
+        <QuestionEditor key={item.id} item={item} onSaved={onSaved} />
+      ))}
+    </StructuredList>
+  );
+}
+
+function QuestionEditor({ item, onSaved }: { item: ProjectQuestion; onSaved: () => void }) {
+  const [form, setForm] = useState<SaveQuestionInput>({
+    question: item.question,
+    answer: item.answer,
+    status: item.status,
+  });
+  return (
+    <EditableObject
+      provenance={item.captureTitle}
+      onSave={async () => {
+        await updateQuestion(item.id, form);
+        toast.success("Question updated");
+        onSaved();
+      }}
+    >
+      <Textarea
+        value={form.question}
+        onChange={(event) => setForm({ ...form, question: event.target.value })}
+      />
+      <Textarea
+        value={form.answer ?? ""}
+        onChange={(event) => setForm({ ...form, answer: event.target.value })}
+      />
+      <Input
+        value={form.status}
+        onChange={(event) => setForm({ ...form, status: event.target.value })}
+      />
+    </EditableObject>
+  );
+}
+
+function SourceList({
+  projectId,
+  captures,
+  items,
+  onSaved,
+}: {
+  projectId: string;
+  captures: Capture[];
+  items: ProjectSource[];
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState<SaveSourceInput>({
+    projectId,
+    captureId: null,
+    title: "",
+    kind: "text",
+    url: "",
+    rawExcerpt: "",
+    notes: "",
+  });
+
+  async function saveSource() {
+    await createSource(form);
+    setForm({
+      projectId,
+      captureId: null,
+      title: "",
+      kind: "text",
+      url: "",
+      rawExcerpt: "",
+      notes: "",
+    });
+    toast.success("Source created");
+    onSaved();
+  }
+
+  return (
+    <div className="source-tab">
+      <div className="project-form">
+        <Input
+          value={form.title}
+          onChange={(event) => setForm({ ...form, title: event.target.value })}
+          placeholder="Source title"
+        />
+        <Input
+          value={form.kind}
+          onChange={(event) => setForm({ ...form, kind: event.target.value })}
+          placeholder="url, docs, repo, message, terminal, text"
+        />
+        <Input
+          value={form.url ?? ""}
+          onChange={(event) => setForm({ ...form, url: event.target.value })}
+          placeholder="https://..."
+        />
+        <ProjectCaptureSelect
+          captures={captures}
+          value={form.captureId}
+          onChange={(captureId) => setForm({ ...form, captureId })}
+        />
+        <Textarea
+          className="wide-field"
+          value={form.rawExcerpt ?? ""}
+          onChange={(event) => setForm({ ...form, rawExcerpt: event.target.value })}
+          placeholder="Raw excerpt"
+        />
+        <Textarea
+          className="wide-field"
+          value={form.notes ?? ""}
+          onChange={(event) => setForm({ ...form, notes: event.target.value })}
+          placeholder="Notes"
+        />
+        <div className="form-actions">
+          <Button type="button" onClick={saveSource} disabled={!form.title.trim()}>
+            <Save aria-hidden="true" />
+            Add source
+          </Button>
+        </div>
+      </div>
+      <StructuredList empty="No sources have been attached to this project.">
+        {items.map((item) => (
+          <SourceEditor key={item.id} item={item} captures={captures} onSaved={onSaved} />
+        ))}
+      </StructuredList>
+    </div>
+  );
+}
+
+function SourceEditor({
+  item,
+  captures,
+  onSaved,
+}: {
+  item: ProjectSource;
+  captures: Capture[];
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState<SaveSourceInput>({
+    projectId: item.projectId,
+    captureId: item.captureId,
+    title: item.title,
+    kind: item.kind,
+    url: item.url,
+    rawExcerpt: item.rawExcerpt,
+    notes: item.notes,
+  });
+  return (
+    <EditableObject
+      provenance={item.captureTitle}
+      onSave={async () => {
+        await updateSource(item.id, form);
+        toast.success("Source updated");
+        onSaved();
+      }}
+    >
+      <Input
+        value={form.title}
+        onChange={(event) => setForm({ ...form, title: event.target.value })}
+      />
+      <Input
+        value={form.kind}
+        onChange={(event) => setForm({ ...form, kind: event.target.value })}
+      />
+      <Input
+        value={form.url ?? ""}
+        onChange={(event) => setForm({ ...form, url: event.target.value })}
+      />
+      <ProjectCaptureSelect
+        captures={captures}
+        value={form.captureId}
+        onChange={(captureId) => setForm({ ...form, captureId })}
+      />
+      <Textarea
+        value={form.rawExcerpt ?? ""}
+        onChange={(event) => setForm({ ...form, rawExcerpt: event.target.value })}
+      />
+      <Textarea
+        value={form.notes ?? ""}
+        onChange={(event) => setForm({ ...form, notes: event.target.value })}
+      />
+    </EditableObject>
+  );
+}
+
+function ProjectCaptureSelect({
+  captures,
+  value,
+  onChange,
+}: {
+  captures: Capture[];
+  value: string | null;
+  onChange: (value: string | null) => void;
+}) {
+  return (
+    <Select
+      value={value ? packProjectId(value) : "none"}
+      onValueChange={(next) => onChange(unpackProjectId(next))}
+    >
+      <SelectTrigger>
+        <SelectValue placeholder="Linked capture" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="none">No capture link</SelectItem>
+        {captures.map((capture) => (
+          <SelectItem key={capture.id} value={packProjectId(capture.id)}>
+            {capture.title || fallbackTitle(capture.rawText)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function ArtefactList({ items }: { items: ProjectArtefact[] }) {
+  return (
+    <StructuredList empty="No artefacts have been generated for this project yet.">
+      {items.map((item) => (
+        <article className="object-item" key={item.id}>
+          <strong>{item.title}</strong>
+          <Badge variant="outline">{item.artefactType}</Badge>
+          <small>Updated {formatAge(item.updatedAt)}</small>
+        </article>
+      ))}
+    </StructuredList>
+  );
+}
+
+function StructuredList({ children, empty }: { children: ReactNode; empty: string }) {
+  const items = Array.isArray(children) ? children.filter(Boolean) : children;
+  if (Array.isArray(items) && items.length === 0) {
+    return <p className="muted-copy">{empty}</p>;
+  }
+
+  return <div className="structured-list">{children}</div>;
+}
+
+function EditableObject({
+  children,
+  provenance,
+  onSave,
+}: {
+  children: ReactNode;
+  provenance: string | null;
+  onSave: () => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    try {
+      await onSave();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <article className="editable-object">
+      {provenance && <Badge variant="outline">From {provenance}</Badge>}
+      <div className="editable-fields">{children}</div>
+      <Button type="button" size="sm" onClick={save} disabled={saving}>
+        <Save aria-hidden="true" />
+        Save
+      </Button>
+    </article>
   );
 }
 
@@ -1332,7 +2123,7 @@ function packProjectId(value: string) {
 }
 
 function unpackProjectId(value: string) {
-  return value === "unassigned" ? null : value.replace(/^project:/, "");
+  return value === "unassigned" || value === "none" ? null : value.replace(/^project:/, "");
 }
 
 export default App;

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const timestamps = {
   createdAt: text("created_at")
@@ -46,6 +46,9 @@ export const captures = sqliteTable(
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  description: text("description"),
+  overview: text("overview").notNull().default(""),
+  currentDirection: text("current_direction").notNull().default(""),
   summary: text("summary"),
   memory: text("memory").notNull().default(""),
   status: text("status").notNull().default("active"),
@@ -112,9 +115,12 @@ export const sources = sqliteTable(
     projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
     captureId: text("capture_id").references(() => captures.id, { onDelete: "set null" }),
     title: text("title").notNull(),
+    kind: text("kind").notNull().default("text"),
     sourceType: text("source_type").notNull().default("text"),
     url: text("url"),
+    rawExcerpt: text("raw_excerpt"),
     rawReference: text("raw_reference"),
+    notes: text("notes"),
     ...timestamps,
   },
   (table) => [
@@ -151,6 +157,13 @@ export const relationships = sqliteTable(
   (table) => [
     index("relationships_from_idx").on(table.fromType, table.fromId),
     index("relationships_to_idx").on(table.toType, table.toId),
+    uniqueIndex("relationships_unique_idx").on(
+      table.fromType,
+      table.fromId,
+      table.toType,
+      table.toId,
+      table.relationshipType,
+    ),
   ],
 );
 

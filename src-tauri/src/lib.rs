@@ -28,6 +28,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "0002_ai_provider_distillation",
         sql: include_str!("../migrations/0002_ai_provider_distillation.sql"),
     },
+    Migration {
+        name: "0003_project_memory",
+        sql: include_str!("../migrations/0003_project_memory.sql"),
+    },
 ];
 
 struct Migration {
@@ -83,6 +87,53 @@ struct CreateCaptureInput {
     project_id: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveProjectInput {
+    name: String,
+    description: Option<String>,
+    overview: Option<String>,
+    current_direction: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveTaskInput {
+    title: String,
+    description: Option<String>,
+    status: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveDecisionInput {
+    title: String,
+    context: Option<String>,
+    decision: String,
+    rationale: Option<String>,
+    status: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveQuestionInput {
+    question: String,
+    answer: Option<String>,
+    status: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveSourceInput {
+    project_id: Option<String>,
+    capture_id: Option<String>,
+    title: String,
+    kind: String,
+    url: Option<String>,
+    raw_excerpt: Option<String>,
+    notes: Option<String>,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Capture {
@@ -110,6 +161,98 @@ struct Capture {
 struct ProjectOption {
     id: String,
     name: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectRecord {
+    id: String,
+    name: String,
+    description: Option<String>,
+    overview: String,
+    current_direction: String,
+    status: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectMemory {
+    project: ProjectRecord,
+    captures: Vec<Capture>,
+    tasks: Vec<ProjectTask>,
+    decisions: Vec<ProjectDecision>,
+    questions: Vec<ProjectQuestion>,
+    sources: Vec<ProjectSource>,
+    artefacts: Vec<ProjectArtefact>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectTask {
+    id: String,
+    capture_id: Option<String>,
+    capture_title: Option<String>,
+    title: String,
+    description: Option<String>,
+    status: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectDecision {
+    id: String,
+    capture_id: Option<String>,
+    capture_title: Option<String>,
+    title: String,
+    context: Option<String>,
+    decision: String,
+    rationale: Option<String>,
+    status: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectQuestion {
+    id: String,
+    capture_id: Option<String>,
+    capture_title: Option<String>,
+    question: String,
+    answer: Option<String>,
+    status: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectSource {
+    id: String,
+    project_id: Option<String>,
+    capture_id: Option<String>,
+    capture_title: Option<String>,
+    title: String,
+    kind: String,
+    url: Option<String>,
+    raw_excerpt: Option<String>,
+    notes: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectArtefact {
+    id: String,
+    title: String,
+    artefact_type: String,
+    created_at: String,
+    updated_at: String,
 }
 
 #[derive(Serialize)]
@@ -197,9 +340,12 @@ struct DistilledQuestion {
 struct DistilledSource {
     id: String,
     title: String,
+    kind: String,
     source_type: String,
     url: Option<String>,
+    raw_excerpt: Option<String>,
     raw_reference: Option<String>,
+    notes: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -440,6 +586,25 @@ fn capture_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Capture> {
         updated_at: row.get("updated_at")?,
         processed_at: row.get("processed_at")?,
         archived_at: row.get("archived_at")?,
+    })
+}
+
+fn project_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRecord> {
+    let summary: Option<String> = row.get("summary")?;
+    let memory: Option<String> = row.get("memory")?;
+    let description: Option<String> = row.get("description")?;
+    let overview: Option<String> = row.get("overview")?;
+    let current_direction: Option<String> = row.get("current_direction")?;
+
+    Ok(ProjectRecord {
+        id: row.get("id")?,
+        name: row.get("name")?,
+        description: description.or(summary),
+        overview: overview.or(memory).unwrap_or_default(),
+        current_direction: current_direction.unwrap_or_default(),
+        status: row.get("status")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
     })
 }
 
@@ -884,6 +1049,103 @@ fn list_projects(state: tauri::State<'_, AppState>) -> Result<Vec<ProjectOption>
 }
 
 #[tauri::command]
+fn list_project_records(state: tauri::State<'_, AppState>) -> Result<Vec<ProjectRecord>, String> {
+    with_database(&state, |connection| {
+        let mut statement = connection
+            .prepare(
+                "SELECT id, name, summary, memory, description, overview, current_direction, status, created_at, updated_at
+                 FROM projects
+                 WHERE status = 'active'
+                 ORDER BY datetime(updated_at) DESC, name ASC",
+            )
+            .map_err(|error| format!("could not prepare project record query: {error}"))?;
+
+        let rows = statement
+            .query_map([], project_from_row)
+            .map_err(|error| format!("could not query projects: {error}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("could not read projects: {error}"))?;
+
+        Ok(rows)
+    })
+}
+
+#[tauri::command]
+fn create_project(
+    state: tauri::State<'_, AppState>,
+    input: SaveProjectInput,
+) -> Result<ProjectRecord, String> {
+    let name = input.name.trim().to_string();
+    if name.is_empty() {
+        return Err("project name is required".to_string());
+    }
+
+    let id = make_id("project");
+    with_database(&state, |connection| {
+        connection
+            .execute(
+                "INSERT INTO projects (id, name, description, overview, current_direction, summary, memory, status)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?3, ?4, 'active')",
+                params![
+                    id,
+                    name,
+                    normalize_optional_text(input.description),
+                    normalize_optional_text(input.overview).unwrap_or_default(),
+                    normalize_optional_text(input.current_direction).unwrap_or_default()
+                ],
+            )
+            .map_err(|error| format!("could not create project: {error}"))?;
+
+        get_project(connection, &id)
+    })
+}
+
+#[tauri::command]
+fn update_project(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    input: SaveProjectInput,
+) -> Result<ProjectRecord, String> {
+    let name = input.name.trim().to_string();
+    if name.is_empty() {
+        return Err("project name is required".to_string());
+    }
+
+    with_database(&state, |connection| {
+        connection
+            .execute(
+                "UPDATE projects
+                 SET name = ?2,
+                     description = ?3,
+                     overview = ?4,
+                     current_direction = ?5,
+                     summary = ?3,
+                     memory = ?4,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?1",
+                params![
+                    id,
+                    name,
+                    normalize_optional_text(input.description),
+                    normalize_optional_text(input.overview).unwrap_or_default(),
+                    normalize_optional_text(input.current_direction).unwrap_or_default()
+                ],
+            )
+            .map_err(|error| format!("could not update project: {error}"))?;
+
+        get_project(connection, &id)
+    })
+}
+
+#[tauri::command]
+fn get_project_memory(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<ProjectMemory, String> {
+    with_database(&state, |connection| load_project_memory(connection, &id))
+}
+
+#[tauri::command]
 fn update_capture_status(
     state: tauri::State<'_, AppState>,
     id: String,
@@ -917,17 +1179,255 @@ fn update_capture_project(
     id: String,
     project_id: Option<String>,
 ) -> Result<Capture, String> {
+    with_database_mut(&state, |connection| {
+        set_capture_project(connection, &id, project_id.as_deref())?;
+        get_capture(connection, &id)
+    })
+}
+
+#[tauri::command]
+fn accept_suggested_project(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<Capture, String> {
+    with_database_mut(&state, |connection| {
+        let suggested_project_id: Option<String> = connection
+            .query_row(
+                "SELECT suggested_project_id FROM captures WHERE id = ?1",
+                [&id],
+                |row| row.get(0),
+            )
+            .map_err(|error| format!("could not load project suggestion: {error}"))?;
+
+        let project_id = suggested_project_id
+            .ok_or_else(|| "capture does not have a matching suggested project".to_string())?;
+        set_capture_project(connection, &id, Some(&project_id))?;
+        get_capture(connection, &id)
+    })
+}
+
+#[tauri::command]
+fn update_task(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    input: SaveTaskInput,
+) -> Result<(), String> {
+    let title = input.title.trim().to_string();
+    if title.is_empty() {
+        return Err("task title is required".to_string());
+    }
+
     with_database(&state, |connection| {
         connection
             .execute(
-                "UPDATE captures
-                 SET project_id = ?2, updated_at = CURRENT_TIMESTAMP
+                "UPDATE tasks
+                 SET title = ?2, description = ?3, status = ?4, updated_at = CURRENT_TIMESTAMP
                  WHERE id = ?1",
-                params![id, project_id],
+                params![
+                    id,
+                    title,
+                    normalize_optional_text(input.description),
+                    input.status.trim()
+                ],
             )
-            .map_err(|error| format!("could not update capture project: {error}"))?;
+            .map_err(|error| format!("could not update task: {error}"))?;
+        Ok(())
+    })
+}
 
-        get_capture(connection, &id)
+#[tauri::command]
+fn update_decision(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    input: SaveDecisionInput,
+) -> Result<(), String> {
+    let title = input.title.trim().to_string();
+    let decision = input.decision.trim().to_string();
+    if title.is_empty() || decision.is_empty() {
+        return Err("decision title and decision are required".to_string());
+    }
+
+    with_database(&state, |connection| {
+        connection
+            .execute(
+                "UPDATE decisions
+                 SET title = ?2,
+                     context = ?3,
+                     decision = ?4,
+                     rationale = ?5,
+                     status = ?6,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?1",
+                params![
+                    id,
+                    title,
+                    normalize_optional_text(input.context),
+                    decision,
+                    normalize_optional_text(input.rationale),
+                    input.status.trim()
+                ],
+            )
+            .map_err(|error| format!("could not update decision: {error}"))?;
+        Ok(())
+    })
+}
+
+#[tauri::command]
+fn update_question(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    input: SaveQuestionInput,
+) -> Result<(), String> {
+    let question = input.question.trim().to_string();
+    if question.is_empty() {
+        return Err("question is required".to_string());
+    }
+
+    with_database(&state, |connection| {
+        connection
+            .execute(
+                "UPDATE questions
+                 SET question = ?2, answer = ?3, status = ?4, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?1",
+                params![
+                    id,
+                    question,
+                    normalize_optional_text(input.answer),
+                    input.status.trim()
+                ],
+            )
+            .map_err(|error| format!("could not update question: {error}"))?;
+        Ok(())
+    })
+}
+
+#[tauri::command]
+fn create_source(
+    state: tauri::State<'_, AppState>,
+    input: SaveSourceInput,
+) -> Result<ProjectSource, String> {
+    let title = input.title.trim().to_string();
+    if title.is_empty() {
+        return Err("source title is required".to_string());
+    }
+
+    let id = make_id("source");
+    with_database(&state, |connection| {
+        connection
+            .execute(
+                "INSERT INTO sources (
+                   id, project_id, capture_id, title, kind, source_type, url, raw_excerpt, raw_reference, notes
+                 )
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, ?7, ?8)",
+                params![
+                    id,
+                    input.project_id,
+                    input.capture_id,
+                    title,
+                    input.kind.trim(),
+                    normalize_optional_url(input.url),
+                    normalize_optional_text(input.raw_excerpt),
+                    normalize_optional_text(input.notes)
+                ],
+            )
+            .map_err(|error| format!("could not create source: {error}"))?;
+        if let Some(project_id) = input.project_id.as_deref() {
+            insert_relationship(connection, "project", project_id, "source", &id, "contains")?;
+        }
+        if let Some(capture_id) = input.capture_id.as_deref() {
+            insert_relationship(
+                connection,
+                "capture",
+                capture_id,
+                "source",
+                &id,
+                "references",
+            )?;
+        }
+
+        get_project_source(connection, &id)
+    })
+}
+
+#[tauri::command]
+fn update_source(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    input: SaveSourceInput,
+) -> Result<ProjectSource, String> {
+    let title = input.title.trim().to_string();
+    if title.is_empty() {
+        return Err("source title is required".to_string());
+    }
+
+    with_database_mut(&state, |connection| {
+        let transaction = connection
+            .transaction()
+            .map_err(|error| format!("could not start source update transaction: {error}"))?;
+
+        transaction
+            .execute(
+                "UPDATE sources
+                 SET project_id = ?2,
+                     capture_id = ?3,
+                     title = ?4,
+                     kind = ?5,
+                     source_type = ?5,
+                     url = ?6,
+                     raw_excerpt = ?7,
+                     raw_reference = ?7,
+                     notes = ?8,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?1",
+                params![
+                    id,
+                    input.project_id,
+                    input.capture_id,
+                    title,
+                    input.kind.trim(),
+                    normalize_optional_url(input.url),
+                    normalize_optional_text(input.raw_excerpt),
+                    normalize_optional_text(input.notes)
+                ],
+            )
+            .map_err(|error| format!("could not update source: {error}"))?;
+
+        transaction
+            .execute(
+                "DELETE FROM relationships
+                 WHERE to_type = 'source'
+                   AND to_id = ?1
+                   AND relationship_type IN ('contains', 'references')",
+                [&id],
+            )
+            .map_err(|error| format!("could not replace source relationships: {error}"))?;
+
+        if let Some(project_id) = input.project_id.as_deref() {
+            insert_relationship(
+                &transaction,
+                "project",
+                project_id,
+                "source",
+                &id,
+                "contains",
+            )?;
+        }
+        if let Some(capture_id) = input.capture_id.as_deref() {
+            insert_relationship(
+                &transaction,
+                "capture",
+                capture_id,
+                "source",
+                &id,
+                "references",
+            )?;
+        }
+
+        transaction
+            .commit()
+            .map_err(|error| format!("could not commit source update: {error}"))?;
+
+        get_project_source(connection, &id)
     })
 }
 
@@ -1113,6 +1613,342 @@ fn load_project_options(connection: &Connection) -> Result<Vec<ProjectOption>, S
     Ok(rows)
 }
 
+fn get_project(connection: &Connection, id: &str) -> Result<ProjectRecord, String> {
+    connection
+        .query_row(
+            "SELECT id, name, summary, memory, description, overview, current_direction, status, created_at, updated_at
+             FROM projects
+             WHERE id = ?1",
+            [id],
+            project_from_row,
+        )
+        .map_err(|error| format!("could not load project: {error}"))
+}
+
+fn set_capture_project(
+    connection: &mut Connection,
+    capture_id: &str,
+    project_id: Option<&str>,
+) -> Result<(), String> {
+    let transaction = connection
+        .transaction()
+        .map_err(|error| format!("could not start project assignment transaction: {error}"))?;
+
+    transaction
+        .execute(
+            "UPDATE captures
+             SET project_id = ?2, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?1",
+            params![capture_id, project_id],
+        )
+        .map_err(|error| format!("could not update capture project: {error}"))?;
+
+    for table in ["tasks", "decisions", "questions", "sources"] {
+        transaction
+            .execute(
+                &format!(
+                    "UPDATE {table}
+                     SET project_id = ?2, updated_at = CURRENT_TIMESTAMP
+                     WHERE capture_id = ?1"
+                ),
+                params![capture_id, project_id],
+            )
+            .map_err(|error| format!("could not update extracted {table}: {error}"))?;
+    }
+
+    transaction
+        .execute(
+            "DELETE FROM relationships
+             WHERE from_type = 'project'
+               AND to_type = 'capture'
+               AND to_id = ?1
+               AND relationship_type = 'contains'",
+            [capture_id],
+        )
+        .map_err(|error| format!("could not replace capture relationship: {error}"))?;
+
+    if let Some(project_id) = project_id {
+        insert_relationship(
+            &transaction,
+            "project",
+            project_id,
+            "capture",
+            capture_id,
+            "contains",
+        )?;
+    }
+
+    transaction
+        .commit()
+        .map_err(|error| format!("could not commit project assignment: {error}"))
+}
+
+fn insert_relationship(
+    connection: &Connection,
+    from_type: &str,
+    from_id: &str,
+    to_type: &str,
+    to_id: &str,
+    relationship_type: &str,
+) -> Result<(), String> {
+    connection
+        .execute(
+            "INSERT OR IGNORE INTO relationships
+               (id, from_type, from_id, to_type, to_id, relationship_type)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                make_id("rel"),
+                from_type,
+                from_id,
+                to_type,
+                to_id,
+                relationship_type
+            ],
+        )
+        .map_err(|error| format!("could not save relationship: {error}"))?;
+
+    Ok(())
+}
+
+fn load_project_memory(connection: &Connection, id: &str) -> Result<ProjectMemory, String> {
+    Ok(ProjectMemory {
+        project: get_project(connection, id)?,
+        captures: load_project_captures(connection, id)?,
+        tasks: load_project_tasks(connection, id)?,
+        decisions: load_project_decisions(connection, id)?,
+        questions: load_project_questions(connection, id)?,
+        sources: load_project_sources(connection, id)?,
+        artefacts: load_project_artefacts(connection, id)?,
+    })
+}
+
+fn load_project_captures(
+    connection: &Connection,
+    project_id: &str,
+) -> Result<Vec<Capture>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT
+               id, raw_text, title, summary, capture_type, source_kind, source, status,
+               processing_status, processing_error, project_id, suggested_project_id,
+               suggested_project_name, created_at, updated_at, processed_at, archived_at
+             FROM captures
+             WHERE project_id = ?1
+             ORDER BY datetime(updated_at) DESC, id DESC",
+        )
+        .map_err(|error| format!("could not prepare project captures query: {error}"))?;
+
+    let rows = statement
+        .query_map([project_id], capture_from_row)
+        .map_err(|error| format!("could not query project captures: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("could not read project captures: {error}"))?;
+
+    Ok(rows)
+}
+
+fn load_project_tasks(
+    connection: &Connection,
+    project_id: &str,
+) -> Result<Vec<ProjectTask>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT tasks.id, tasks.capture_id, captures.title AS capture_title, tasks.title,
+                    tasks.description, tasks.status, tasks.created_at, tasks.updated_at
+             FROM tasks
+             LEFT JOIN captures ON captures.id = tasks.capture_id
+             WHERE tasks.project_id = ?1
+             ORDER BY datetime(tasks.updated_at) DESC, tasks.id DESC",
+        )
+        .map_err(|error| format!("could not prepare project task query: {error}"))?;
+
+    let rows = statement
+        .query_map([project_id], |row| {
+            Ok(ProjectTask {
+                id: row.get("id")?,
+                capture_id: row.get("capture_id")?,
+                capture_title: row.get("capture_title")?,
+                title: row.get("title")?,
+                description: row.get("description")?,
+                status: row.get("status")?,
+                created_at: row.get("created_at")?,
+                updated_at: row.get("updated_at")?,
+            })
+        })
+        .map_err(|error| format!("could not query project tasks: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("could not read project tasks: {error}"))?;
+
+    Ok(rows)
+}
+
+fn load_project_decisions(
+    connection: &Connection,
+    project_id: &str,
+) -> Result<Vec<ProjectDecision>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT decisions.id, decisions.capture_id, captures.title AS capture_title,
+                    decisions.title, decisions.context, decisions.decision,
+                    decisions.rationale, decisions.status, decisions.created_at,
+                    decisions.updated_at
+             FROM decisions
+             LEFT JOIN captures ON captures.id = decisions.capture_id
+             WHERE decisions.project_id = ?1
+             ORDER BY datetime(decisions.updated_at) DESC, decisions.id DESC",
+        )
+        .map_err(|error| format!("could not prepare project decision query: {error}"))?;
+
+    let rows = statement
+        .query_map([project_id], |row| {
+            Ok(ProjectDecision {
+                id: row.get("id")?,
+                capture_id: row.get("capture_id")?,
+                capture_title: row.get("capture_title")?,
+                title: row.get("title")?,
+                context: row.get("context")?,
+                decision: row.get("decision")?,
+                rationale: row.get("rationale")?,
+                status: row.get("status")?,
+                created_at: row.get("created_at")?,
+                updated_at: row.get("updated_at")?,
+            })
+        })
+        .map_err(|error| format!("could not query project decisions: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("could not read project decisions: {error}"))?;
+
+    Ok(rows)
+}
+
+fn load_project_questions(
+    connection: &Connection,
+    project_id: &str,
+) -> Result<Vec<ProjectQuestion>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT questions.id, questions.capture_id, captures.title AS capture_title,
+                    questions.question, questions.answer, questions.status,
+                    questions.created_at, questions.updated_at
+             FROM questions
+             LEFT JOIN captures ON captures.id = questions.capture_id
+             WHERE questions.project_id = ?1
+             ORDER BY datetime(questions.updated_at) DESC, questions.id DESC",
+        )
+        .map_err(|error| format!("could not prepare project question query: {error}"))?;
+
+    let rows = statement
+        .query_map([project_id], |row| {
+            Ok(ProjectQuestion {
+                id: row.get("id")?,
+                capture_id: row.get("capture_id")?,
+                capture_title: row.get("capture_title")?,
+                question: row.get("question")?,
+                answer: row.get("answer")?,
+                status: row.get("status")?,
+                created_at: row.get("created_at")?,
+                updated_at: row.get("updated_at")?,
+            })
+        })
+        .map_err(|error| format!("could not query project questions: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("could not read project questions: {error}"))?;
+
+    Ok(rows)
+}
+
+fn load_project_sources(
+    connection: &Connection,
+    project_id: &str,
+) -> Result<Vec<ProjectSource>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT sources.id, sources.project_id, sources.capture_id,
+                    captures.title AS capture_title, sources.title,
+                    COALESCE(NULLIF(sources.kind, ''), sources.source_type) AS kind,
+                    sources.url,
+                    COALESCE(sources.raw_excerpt, sources.raw_reference) AS raw_excerpt,
+                    sources.notes, sources.created_at, sources.updated_at
+             FROM sources
+             LEFT JOIN captures ON captures.id = sources.capture_id
+             WHERE sources.project_id = ?1
+             ORDER BY datetime(sources.updated_at) DESC, sources.id DESC",
+        )
+        .map_err(|error| format!("could not prepare project source query: {error}"))?;
+
+    let rows = statement
+        .query_map([project_id], project_source_from_row)
+        .map_err(|error| format!("could not query project sources: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("could not read project sources: {error}"))?;
+
+    Ok(rows)
+}
+
+fn get_project_source(connection: &Connection, id: &str) -> Result<ProjectSource, String> {
+    connection
+        .query_row(
+            "SELECT sources.id, sources.project_id, sources.capture_id,
+                    captures.title AS capture_title, sources.title,
+                    COALESCE(NULLIF(sources.kind, ''), sources.source_type) AS kind,
+                    sources.url,
+                    COALESCE(sources.raw_excerpt, sources.raw_reference) AS raw_excerpt,
+                    sources.notes, sources.created_at, sources.updated_at
+             FROM sources
+             LEFT JOIN captures ON captures.id = sources.capture_id
+             WHERE sources.id = ?1",
+            [id],
+            project_source_from_row,
+        )
+        .map_err(|error| format!("could not load source: {error}"))
+}
+
+fn project_source_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectSource> {
+    Ok(ProjectSource {
+        id: row.get("id")?,
+        project_id: row.get("project_id")?,
+        capture_id: row.get("capture_id")?,
+        capture_title: row.get("capture_title")?,
+        title: row.get("title")?,
+        kind: row.get("kind")?,
+        url: row.get("url")?,
+        raw_excerpt: row.get("raw_excerpt")?,
+        notes: row.get("notes")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+fn load_project_artefacts(
+    connection: &Connection,
+    project_id: &str,
+) -> Result<Vec<ProjectArtefact>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, title, artefact_type, created_at, updated_at
+             FROM artefacts
+             WHERE project_id = ?1
+             ORDER BY datetime(updated_at) DESC, id DESC",
+        )
+        .map_err(|error| format!("could not prepare project artefact query: {error}"))?;
+
+    let rows = statement
+        .query_map([project_id], |row| {
+            Ok(ProjectArtefact {
+                id: row.get("id")?,
+                title: row.get("title")?,
+                artefact_type: row.get("artefact_type")?,
+                created_at: row.get("created_at")?,
+                updated_at: row.get("updated_at")?,
+            })
+        })
+        .map_err(|error| format!("could not query project artefacts: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("could not read project artefacts: {error}"))?;
+
+    Ok(rows)
+}
+
 fn load_capture_distillation(
     connection: &Connection,
     id: &str,
@@ -1221,7 +2057,14 @@ fn load_distilled_sources(
 ) -> Result<Vec<DistilledSource>, String> {
     let mut statement = connection
         .prepare(
-            "SELECT id, title, source_type, url, raw_reference
+            "SELECT id,
+                    title,
+                    COALESCE(NULLIF(kind, ''), source_type) AS kind,
+                    source_type,
+                    url,
+                    COALESCE(raw_excerpt, raw_reference) AS raw_excerpt,
+                    raw_reference,
+                    notes
              FROM sources
              WHERE capture_id = ?1
              ORDER BY datetime(created_at) ASC, id ASC",
@@ -1233,9 +2076,12 @@ fn load_distilled_sources(
             Ok(DistilledSource {
                 id: row.get("id")?,
                 title: row.get("title")?,
+                kind: row.get("kind")?,
                 source_type: row.get("source_type")?,
                 url: row.get("url")?,
+                raw_excerpt: row.get("raw_excerpt")?,
                 raw_reference: row.get("raw_reference")?,
+                notes: row.get("notes")?,
             })
         })
         .map_err(|error| format!("could not query sources: {error}"))?
@@ -1254,6 +2100,13 @@ fn persist_extraction(
     let transaction = connection
         .transaction()
         .map_err(|error| format!("could not start extraction transaction: {error}"))?;
+    let project_id: Option<String> = transaction
+        .query_row(
+            "SELECT project_id FROM captures WHERE id = ?1",
+            [capture_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("could not load capture project for extraction: {error}"))?;
 
     transaction
         .execute("DELETE FROM tasks WHERE capture_id = ?1", [capture_id])
@@ -1308,18 +2161,30 @@ fn persist_extraction(
             continue;
         }
 
+        let task_id = make_id("task");
         transaction
             .execute(
-                "INSERT INTO tasks (id, capture_id, title, description, status)
-                 VALUES (?1, ?2, ?3, ?4, 'open')",
+                "INSERT INTO tasks (id, project_id, capture_id, title, description, status)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'open')",
                 params![
-                    make_id("task"),
+                    task_id,
+                    project_id,
                     capture_id,
                     task.title.trim(),
                     normalize_optional_text(task.description)
                 ],
             )
             .map_err(|error| format!("could not save extracted task: {error}"))?;
+        if let Some(project_id) = project_id.as_deref() {
+            insert_relationship(
+                &transaction,
+                "project",
+                project_id,
+                "task",
+                &task_id,
+                "contains",
+            )?;
+        }
     }
 
     for decision in extraction.decisions.unwrap_or_default() {
@@ -1327,12 +2192,14 @@ fn persist_extraction(
             continue;
         }
 
+        let decision_id = make_id("decision");
         transaction
             .execute(
-                "INSERT INTO decisions (id, capture_id, title, context, decision, rationale, status)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'proposed')",
+                "INSERT INTO decisions (id, project_id, capture_id, title, context, decision, rationale, status)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'proposed')",
                 params![
-                    make_id("decision"),
+                    decision_id,
+                    project_id,
                     capture_id,
                     decision.title.trim(),
                     normalize_optional_text(decision.context),
@@ -1341,6 +2208,16 @@ fn persist_extraction(
                 ],
             )
             .map_err(|error| format!("could not save extracted decision: {error}"))?;
+        if let Some(project_id) = project_id.as_deref() {
+            insert_relationship(
+                &transaction,
+                "project",
+                project_id,
+                "decision",
+                &decision_id,
+                "contains",
+            )?;
+        }
     }
 
     for question in extraction.questions.unwrap_or_default() {
@@ -1348,18 +2225,30 @@ fn persist_extraction(
             continue;
         }
 
+        let question_id = make_id("question");
         transaction
             .execute(
-                "INSERT INTO questions (id, capture_id, question, answer, status)
-                 VALUES (?1, ?2, ?3, ?4, 'open')",
+                "INSERT INTO questions (id, project_id, capture_id, question, answer, status)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'open')",
                 params![
-                    make_id("question"),
+                    question_id,
+                    project_id,
                     capture_id,
                     question.question.trim(),
                     normalize_optional_text(question.answer)
                 ],
             )
             .map_err(|error| format!("could not save extracted question: {error}"))?;
+        if let Some(project_id) = project_id.as_deref() {
+            insert_relationship(
+                &transaction,
+                "project",
+                project_id,
+                "question",
+                &question_id,
+                "contains",
+            )?;
+        }
     }
 
     for source in extraction.sources.unwrap_or_default() {
@@ -1370,12 +2259,14 @@ fn persist_extraction(
             .or_else(|| source.raw_reference.clone())
             .unwrap_or_else(|| "Source reference".to_string());
 
+        let source_id = make_id("source");
         transaction
             .execute(
-                "INSERT INTO sources (id, capture_id, title, source_type, url, raw_reference)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO sources (id, project_id, capture_id, title, kind, source_type, url, raw_excerpt, raw_reference)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6, ?7, ?7)",
                 params![
-                    make_id("source"),
+                    source_id,
+                    project_id,
                     capture_id,
                     title,
                     normalize_optional_text(source.source_type)
@@ -1385,16 +2276,27 @@ fn persist_extraction(
                 ],
             )
             .map_err(|error| format!("could not save extracted source: {error}"))?;
+        if let Some(project_id) = project_id.as_deref() {
+            insert_relationship(
+                &transaction,
+                "project",
+                project_id,
+                "source",
+                &source_id,
+                "contains",
+            )?;
+        }
     }
 
     for insight in extraction.insights.unwrap_or_default() {
         let title = normalize_optional_text(insight.title).unwrap_or_else(|| "Insight".to_string());
         transaction
             .execute(
-                "INSERT INTO sources (id, capture_id, title, source_type, raw_reference)
-                 VALUES (?1, ?2, ?3, 'insight', ?4)",
+                "INSERT INTO sources (id, project_id, capture_id, title, kind, source_type, raw_excerpt, raw_reference)
+                 VALUES (?1, ?2, ?3, ?4, 'insight', 'insight', ?5, ?5)",
                 params![
                     make_id("source"),
+                    project_id,
                     capture_id,
                     title,
                     normalize_optional_text(insight.summary)
@@ -1408,10 +2310,11 @@ fn persist_extraction(
             normalize_optional_text(item.title).unwrap_or_else(|| "Code or prompt".to_string());
         transaction
             .execute(
-                "INSERT INTO sources (id, capture_id, title, source_type, raw_reference)
-                 VALUES (?1, ?2, ?3, 'prompt_or_snippet', ?4)",
+                "INSERT INTO sources (id, project_id, capture_id, title, kind, source_type, raw_excerpt, raw_reference)
+                 VALUES (?1, ?2, ?3, ?4, 'prompt_or_snippet', 'prompt_or_snippet', ?5, ?5)",
                 params![
                     make_id("source"),
+                    project_id,
                     capture_id,
                     title,
                     normalize_optional_text(item.text)
@@ -1425,10 +2328,11 @@ fn persist_extraction(
             .unwrap_or_else(|| "Artefact suggestion".to_string());
         transaction
             .execute(
-                "INSERT INTO sources (id, capture_id, title, source_type, raw_reference)
-                 VALUES (?1, ?2, ?3, 'artefact_suggestion', ?4)",
+                "INSERT INTO sources (id, project_id, capture_id, title, kind, source_type, raw_excerpt, raw_reference)
+                 VALUES (?1, ?2, ?3, ?4, 'artefact_suggestion', 'artefact_suggestion', ?5, ?5)",
                 params![
                     make_id("source"),
+                    project_id,
                     capture_id,
                     title,
                     normalize_optional_text(item.text)
@@ -1548,8 +2452,18 @@ pub fn run() {
             create_capture,
             list_captures,
             list_projects,
+            list_project_records,
+            create_project,
+            update_project,
+            get_project_memory,
             update_capture_status,
             update_capture_project,
+            accept_suggested_project,
+            update_task,
+            update_decision,
+            update_question,
+            create_source,
+            update_source,
             get_provider_settings,
             save_provider_settings,
             test_provider_settings,
@@ -1579,7 +2493,7 @@ mod tests {
         assert!(database.database_path.exists());
         assert_eq!(
             database.latest_migration.as_deref(),
-            Some("0002_ai_provider_distillation")
+            Some("0003_project_memory")
         );
 
         let table_count: i64 = database
@@ -1623,5 +2537,17 @@ mod tests {
             .expect("capture inbox columns are queryable");
 
         assert_eq!(has_capture_columns, 7);
+
+        let has_project_memory_columns: i64 = database
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('projects')
+                 WHERE name IN ('description', 'overview', 'current_direction')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("project memory columns are queryable");
+
+        assert_eq!(has_project_memory_columns, 3);
     }
 }
