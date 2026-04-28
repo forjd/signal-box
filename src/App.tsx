@@ -361,118 +361,122 @@ function MainWindow() {
   }, []);
 
   return (
-    <main className="app-shell">
+    <>
       <Toaster richColors position="bottom-right" />
-      <aside className="sidebar" aria-label="Primary navigation">
-        <div className="brand-block">
-          <span className="brand-mark" aria-hidden="true">
-            SB
-          </span>
-          <div>
-            <p className="brand-name">Signal Box</p>
-            <p className="brand-subtitle">Local developer context</p>
+      <main className="app-shell">
+        <aside className="sidebar" aria-label="Primary navigation">
+          <div className="brand-block">
+            <span className="brand-mark" aria-hidden="true">
+              SB
+            </span>
+            <div>
+              <p className="brand-name">Signal Box</p>
+              <p className="brand-subtitle">Local developer context</p>
+            </div>
           </div>
-        </div>
 
-        <nav className="nav-list">
-          {routes.map((route) => (
-            <Button
-              className="nav-item"
-              data-active={route.id === activeRoute}
-              key={route.id}
-              onClick={() => setActiveRoute(route.id)}
-              title={`Command/Ctrl+${routes.findIndex((item) => item.id === route.id) + 1}`}
-              type="button"
-              variant="ghost"
-            >
-              {route.label}
-            </Button>
-          ))}
-        </nav>
-
-        <DatabasePill state={databaseHealth} />
-      </aside>
-
-      <section className="workspace" aria-labelledby="view-title">
-        <header className="workspace-header">
-          <div>
-            <p className="eyebrow">{currentRoute.eyebrow}</p>
-            <h1 id="view-title">{currentRoute.label}</h1>
-          </div>
-          <div className="header-actions">
-            {activeRoute === "inbox" && (
-              <Button type="button" onClick={() => showQuickCapture()} size="sm">
-                <PanelTopOpen aria-hidden="true" />
-                Quick capture
+          <nav className="nav-list">
+            {routes.map((route) => (
+              <Button
+                className="nav-item"
+                data-active={route.id === activeRoute}
+                key={route.id}
+                onClick={() => setActiveRoute(route.id)}
+                title={`Command/Ctrl+${routes.findIndex((item) => item.id === route.id) + 1}`}
+                type="button"
+                variant="ghost"
+              >
+                {route.label}
               </Button>
-            )}
-            <MetadataSummary state={metadata} />
-          </div>
-        </header>
+            ))}
+          </nav>
 
-        {activeRoute === "settings" && <SettingsView health={databaseHealth} metadata={metadata} />}
-        {activeRoute === "projects" && (
-          <ProjectsView
-            state={projectRecords}
-            selectedProjectId={selectedProjectId}
-            onRefresh={refreshProjects}
-            onSelect={(id) => {
-              setSelectedProjectId(id);
-              setActiveRoute("memory");
-            }}
-          />
-        )}
-        {activeRoute === "memory" && (
-          <ProjectMemoryView
-            projects={projectRecords}
-            selectedProjectId={selectedProjectId}
-            onRefreshProjects={refreshProjects}
-            onSelectProject={setSelectedProjectId}
-          />
-        )}
-        {activeRoute === "artefacts" && (
-          <ArtefactsView
-            projects={projectRecords}
-            selectedProjectId={selectedProjectId}
-            onSelectProject={setSelectedProjectId}
-          />
-        )}
-        {activeRoute === "search" && (
-          <SearchView
-            projects={projectRecords}
-            selectedProjectId={selectedProjectId}
-            onSelectProject={setSelectedProjectId}
-            onOpenProjectMemory={(projectId) => {
-              setSelectedProjectId(projectId);
-              setActiveRoute("memory");
-            }}
-          />
-        )}
-        {activeRoute === "inbox" && (
-          <InboxView
-            captures={captures}
-            projects={projects}
-            selectedCapture={selectedCapture}
-            selectedCaptureId={selectedCaptureId}
-            onArchive={archiveCapture}
-            onRefresh={refreshInbox}
-            onSelect={setSelectedCaptureId}
-            onStatusChange={changeCaptureStatus}
-            onProjectChange={changeCaptureProject}
-            onAcceptSuggestion={acceptCaptureProject}
-            onCaptureChange={replaceCapture}
-          />
-        )}
-        {activeRoute !== "settings" &&
-          activeRoute !== "inbox" &&
-          activeRoute !== "projects" &&
-          activeRoute !== "memory" &&
-          activeRoute !== "artefacts" &&
-          activeRoute !== "search" && (
-            <EmptyState title={currentRoute.title} body={currentRoute.body} />
+          <DatabasePill state={databaseHealth} />
+        </aside>
+
+        <section className="workspace" aria-labelledby="view-title">
+          <header className="workspace-header">
+            <div>
+              <p className="eyebrow">{currentRoute.eyebrow}</p>
+              <h1 id="view-title">{currentRoute.label}</h1>
+            </div>
+            <div className="header-actions">
+              {activeRoute === "inbox" && (
+                <Button type="button" onClick={() => showQuickCapture()} size="sm">
+                  <PanelTopOpen aria-hidden="true" />
+                  Quick capture
+                </Button>
+              )}
+              <MetadataSummary state={metadata} />
+            </div>
+          </header>
+
+          {activeRoute === "settings" && (
+            <SettingsView health={databaseHealth} metadata={metadata} />
           )}
-      </section>
-    </main>
+          {activeRoute === "projects" && (
+            <ProjectsView
+              state={projectRecords}
+              selectedProjectId={selectedProjectId}
+              onRefresh={refreshProjects}
+              onSelect={(id) => {
+                setSelectedProjectId(id);
+                setActiveRoute("memory");
+              }}
+            />
+          )}
+          {activeRoute === "memory" && (
+            <ProjectMemoryView
+              projects={projectRecords}
+              selectedProjectId={selectedProjectId}
+              onRefreshProjects={refreshProjects}
+              onSelectProject={setSelectedProjectId}
+            />
+          )}
+          {activeRoute === "artefacts" && (
+            <ArtefactsView
+              projects={projectRecords}
+              selectedProjectId={selectedProjectId}
+              onSelectProject={setSelectedProjectId}
+            />
+          )}
+          {activeRoute === "search" && (
+            <SearchView
+              projects={projectRecords}
+              selectedProjectId={selectedProjectId}
+              onSelectProject={setSelectedProjectId}
+              onOpenProjectMemory={(projectId) => {
+                setSelectedProjectId(projectId);
+                setActiveRoute("memory");
+              }}
+            />
+          )}
+          {activeRoute === "inbox" && (
+            <InboxView
+              captures={captures}
+              projects={projects}
+              selectedCapture={selectedCapture}
+              selectedCaptureId={selectedCaptureId}
+              onArchive={archiveCapture}
+              onRefresh={refreshInbox}
+              onSelect={setSelectedCaptureId}
+              onStatusChange={changeCaptureStatus}
+              onProjectChange={changeCaptureProject}
+              onAcceptSuggestion={acceptCaptureProject}
+              onCaptureChange={replaceCapture}
+            />
+          )}
+          {activeRoute !== "settings" &&
+            activeRoute !== "inbox" &&
+            activeRoute !== "projects" &&
+            activeRoute !== "memory" &&
+            activeRoute !== "artefacts" &&
+            activeRoute !== "search" && (
+              <EmptyState title={currentRoute.title} body={currentRoute.body} />
+            )}
+        </section>
+      </main>
+    </>
   );
 }
 
@@ -485,14 +489,45 @@ function QuickCaptureWindow() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const loadProjects = useCallback(async () => {
+    const nextProjects = await listProjects();
+    setProjects(nextProjects);
+  }, []);
+
   useEffect(() => {
     textareaRef.current?.focus();
-    listProjects()
-      .then(setProjects)
+    loadProjects().catch((loadError) =>
+      setError(loadError instanceof Error ? loadError.message : String(loadError)),
+    );
+
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+
+    currentWindow
+      .onFocusChanged(({ payload: focused }) => {
+        if (focused) {
+          loadProjects().catch((loadError) =>
+            setError(loadError instanceof Error ? loadError.message : String(loadError)),
+          );
+        }
+      })
+      .then((nextUnlisten) => {
+        if (disposed) {
+          nextUnlisten();
+          return;
+        }
+
+        unlisten = nextUnlisten;
+      })
       .catch((loadError) =>
         setError(loadError instanceof Error ? loadError.message : String(loadError)),
       );
-  }, []);
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [loadProjects]);
 
   useEffect(() => {
     if (!rawText.trim()) {
@@ -571,7 +606,16 @@ function QuickCaptureWindow() {
       <div className="quick-capture-controls">
         <div className="form-field">
           <span>Project</span>
-          <ProjectSelect projects={projects} value={projectId} onChange={setProjectId} />
+          <ProjectSelect
+            projects={projects}
+            value={projectId}
+            onChange={setProjectId}
+            onOpen={() => {
+              loadProjects().catch((loadError) =>
+                setError(loadError instanceof Error ? loadError.message : String(loadError)),
+              );
+            }}
+          />
         </div>
         <div className="form-field">
           <span>Type</span>
@@ -1012,15 +1056,22 @@ function ProjectSelect({
   projects,
   value,
   onChange,
+  onOpen,
 }: {
   projects: ProjectOption[];
   value: string | null;
   onChange: (value: string | null) => void;
+  onOpen?: () => void;
 }) {
   return (
     <Select
       value={value ? packProjectId(value) : "unassigned"}
       onValueChange={(next) => onChange(unpackProjectId(next))}
+      onOpenChange={(open) => {
+        if (open) {
+          onOpen?.();
+        }
+      }}
     >
       <SelectTrigger>
         <SelectValue />
