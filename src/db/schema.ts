@@ -175,16 +175,22 @@ export const embeddings = sqliteTable(
   "embeddings",
   {
     id: text("id").primaryKey(),
+    entityType: text("entity_type"),
+    entityId: text("entity_id"),
     ownerType: text("owner_type").notNull(),
     ownerId: text("owner_id").notNull(),
     provider: text("provider").notNull(),
     model: text("model").notNull(),
     dimensions: integer("dimensions").notNull(),
+    embedding: text("embedding"),
     vectorJson: text("vector_json").notNull(),
     contentHash: text("content_hash").notNull(),
     ...timestamps,
   },
-  (table) => [index("embeddings_owner_idx").on(table.ownerType, table.ownerId)],
+  (table) => [
+    index("embeddings_owner_idx").on(table.ownerType, table.ownerId),
+    index("embeddings_entity_idx").on(table.entityType, table.entityId),
+  ],
 );
 
 export const settings = sqliteTable(

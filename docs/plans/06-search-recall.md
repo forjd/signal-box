@@ -3,11 +3,11 @@ id: phase-06-search-recall
 title: Search and Recall
 type: phase
 phase: 6
-status: planned
+status: verified
 created: 2026-04-28T19:06:10Z
-updated: 2026-04-28T19:36:26Z
-verified_at: null
-verified_by: null
+updated: 2026-04-28T20:40:16Z
+verified_at: 2026-04-28T20:40:16Z
+verified_by: codex
 related_scope: docs/scope.md
 ---
 

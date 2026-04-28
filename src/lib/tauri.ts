@@ -257,6 +257,33 @@ export type ArtefactDraft = {
 
 export type SaveArtefactInput = ArtefactDraft;
 
+export type IndexResult = {
+  indexed: number;
+  skipped: number;
+};
+
+export type SearchInput = {
+  query: string;
+  projectId: string | null;
+  limit: number | null;
+};
+
+export type SearchResult = {
+  entityType: string;
+  entityId: string;
+  title: string;
+  snippet: string;
+  projectId: string | null;
+  projectName: string | null;
+  score: number;
+  matchKind: string;
+};
+
+export type AskAnswer = {
+  answerMarkdown: string;
+  results: SearchResult[];
+};
+
 export function getDatabaseHealth() {
   return invoke<DatabaseHealth>("database_health");
 }
@@ -307,6 +334,24 @@ export function listArtefacts(projectId?: string | null) {
 
 export function getArtefact(id: string) {
   return invoke<ProjectArtefact>("get_artefact", { id });
+}
+
+export function indexSearchContext(projectId?: string | null) {
+  return invoke<IndexResult>("index_search_context", { projectId: projectId ?? null });
+}
+
+export function searchContext(input: SearchInput) {
+  return invoke<SearchResult[]>("search_context", { input });
+}
+
+export function askContext(question: string, projectId?: string | null) {
+  return invoke<AskAnswer>("ask_context", {
+    input: { question, projectId: projectId ?? null },
+  });
+}
+
+export function projectRecall(projectId: string) {
+  return invoke<AskAnswer>("project_recall", { projectId });
 }
 
 export function updateCaptureStatus(id: string, status: CaptureStatus) {

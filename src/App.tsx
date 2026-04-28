@@ -32,6 +32,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   acceptSuggestedProject,
+  askContext,
   createCapture,
   createProject,
   createSource,
@@ -41,13 +42,16 @@ import {
   getDatabaseHealth,
   getProjectMemory,
   getProviderSettings,
+  indexSearchContext,
   listArtefacts,
   listCaptures,
   listProjectRecords,
   listProjects,
   processCapture,
+  projectRecall,
   saveArtefact,
   saveProviderSettings,
+  searchContext,
   showQuickCapture,
   testProviderSettings,
   updateDecision,
@@ -61,6 +65,7 @@ import {
   type ArtefactContextSelection,
   type ArtefactDraft,
   type ArtefactType,
+  type AskAnswer,
   type Capture,
   type CaptureDistillation,
   type CaptureStatus,
@@ -87,6 +92,7 @@ import {
   type SaveQuestionInput,
   type SaveSourceInput,
   type SaveTaskInput,
+  type SearchResult,
   type SourceKind,
 } from "./lib/tauri";
 import "./App.css";
@@ -135,8 +141,8 @@ const routes: Array<{ id: RouteId; label: string; eyebrow: string; title: string
       id: "search",
       label: "Search / Ask",
       eyebrow: "Find",
-      title: "Search is reserved",
-      body: "Semantic search and ask flows are out of scope for this phase.",
+      title: "Search local memory",
+      body: "Index project context, run semantic or keyword search, and ask grounded questions.",
     },
     {
       id: "settings",
@@ -407,6 +413,17 @@ function MainWindow() {
             onSelectProject={setSelectedProjectId}
           />
         )}
+        {activeRoute === "search" && (
+          <SearchView
+            projects={projectRecords}
+            selectedProjectId={selectedProjectId}
+            onSelectProject={setSelectedProjectId}
+            onOpenProjectMemory={(projectId) => {
+              setSelectedProjectId(projectId);
+              setActiveRoute("memory");
+            }}
+          />
+        )}
         {activeRoute === "inbox" && (
           <InboxView
             captures={captures}
@@ -426,7 +443,8 @@ function MainWindow() {
           activeRoute !== "inbox" &&
           activeRoute !== "projects" &&
           activeRoute !== "memory" &&
-          activeRoute !== "artefacts" && (
+          activeRoute !== "artefacts" &&
+          activeRoute !== "search" && (
             <EmptyState title={currentRoute.title} body={currentRoute.body} />
           )}
       </section>
@@ -2130,6 +2148,192 @@ async function copyMarkdown(markdown: string) {
   } catch (error) {
     toast.error(error instanceof Error ? error.message : String(error));
   }
+}
+
+function SearchView({
+  projects,
+  selectedProjectId,
+  onSelectProject,
+  onOpenProjectMemory,
+}: {
+  projects: LoadState<ProjectRecord[]>;
+  selectedProjectId: string | null;
+  onSelectProject: (id: string) => void;
+  onOpenProjectMemory: (id: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [question, setQuestion] = useState("");
+  const [results, setResults] = useState<LoadState<SearchResult[]>>({ status: "ready", data: [] });
+  const [answer, setAnswer] = useState<LoadState<AskAnswer | null>>({
+    status: "ready",
+    data: null,
+  });
+  const [indexing, setIndexing] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [asking, setAsking] = useState(false);
+
+  if (projects.status === "loading") {
+    return <LoadingState label="Loading search projects" />;
+  }
+
+  if (projects.status === "error") {
+    return <ErrorState title="Projects unavailable" message={projects.message} />;
+  }
+
+  const activeProjectId = selectedProjectId ?? projects.data[0]?.id ?? null;
+
+  async function runIndex() {
+    setIndexing(true);
+    try {
+      const result = await indexSearchContext(activeProjectId);
+      toast.success(`Indexed ${result.indexed}, skipped ${result.skipped}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIndexing(false);
+    }
+  }
+
+  async function runSearch() {
+    setSearching(true);
+    setResults({ status: "loading" });
+    try {
+      const found = await searchContext({ query, projectId: activeProjectId, limit: 12 });
+      setResults({ status: "ready", data: found });
+    } catch (error) {
+      setResults({
+        status: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function runAsk(recall = false) {
+    if (!activeProjectId && recall) {
+      toast.error("Choose a project for recall");
+      return;
+    }
+
+    setAsking(true);
+    setAnswer({ status: "loading" });
+    try {
+      const response = recall
+        ? await projectRecall(activeProjectId as string)
+        : await askContext(question, activeProjectId);
+      setAnswer({ status: "ready", data: response });
+      setResults({ status: "ready", data: response.results });
+    } catch (error) {
+      setAnswer({
+        status: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setAsking(false);
+    }
+  }
+
+  return (
+    <div className="search-workspace">
+      <section className="search-panel">
+        <div className="list-toolbar">
+          <div>
+            <p className="eyebrow">Search</p>
+            <h2>Local context</h2>
+          </div>
+          {activeProjectId && (
+            <ProjectRecordSelect
+              projects={projects.data}
+              value={activeProjectId}
+              onChange={onSelectProject}
+            />
+          )}
+        </div>
+
+        <div className="search-controls">
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search decisions, captures, sources, artefacts..."
+          />
+          <Button type="button" onClick={runSearch} disabled={searching || !query.trim()}>
+            Search
+          </Button>
+          <Button type="button" variant="outline" onClick={runIndex} disabled={indexing}>
+            {indexing ? "Indexing" : "Index"}
+          </Button>
+        </div>
+
+        <div className="search-controls ask-controls">
+          <Input
+            value={question}
+            onChange={(event) => setQuestion(event.target.value)}
+            placeholder="What did I decide about sync?"
+          />
+          <Button type="button" onClick={() => runAsk(false)} disabled={asking || !question.trim()}>
+            Ask
+          </Button>
+          <Button type="button" variant="outline" onClick={() => runAsk(true)} disabled={asking}>
+            Where did I get to?
+          </Button>
+        </div>
+
+        {answer.status === "loading" && (
+          <LoadingState label="Answering from local context" compact />
+        )}
+        {answer.status === "error" && (
+          <ErrorState title="Ask failed" message={answer.message} compact />
+        )}
+        {answer.status === "ready" && answer.data && (
+          <section className="answer-panel">
+            <MarkdownBlock markdown={answer.data.answerMarkdown} />
+          </section>
+        )}
+      </section>
+
+      <section className="search-panel">
+        <div className="list-toolbar">
+          <div>
+            <p className="eyebrow">Results</p>
+            <h2>{results.status === "ready" ? results.data.length : 0} matches</h2>
+          </div>
+        </div>
+        {results.status === "loading" && <LoadingState label="Searching local memory" />}
+        {results.status === "error" && (
+          <ErrorState title="Search failed" message={results.message} />
+        )}
+        {results.status === "ready" && (
+          <div className="structured-list search-results">
+            {results.data.length === 0 && <p className="muted-copy">No results yet.</p>}
+            {results.data.map((result) => (
+              <article className="object-item" key={`${result.entityType}:${result.entityId}`}>
+                <div className="distillation-header">
+                  <strong>{result.title}</strong>
+                  <Badge variant="outline">{result.matchKind}</Badge>
+                </div>
+                <p>{result.snippet}</p>
+                <small>
+                  {result.entityType}:{result.entityId}
+                  {result.projectName ? ` · ${result.projectName}` : ""}
+                </small>
+                {result.projectId && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onOpenProjectMemory(result.projectId as string)}
+                  >
+                    Open project memory
+                  </Button>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
 }
 
 function StructuredList({ children, empty }: { children: ReactNode; empty: string }) {

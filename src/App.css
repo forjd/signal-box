@@ -780,6 +780,42 @@ h2 {
   gap: 0;
 }
 
+.search-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 18px;
+}
+
+.search-panel {
+  display: grid;
+  align-content: start;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #d7ddd6;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.search-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  border-bottom: 1px solid #e2e6e1;
+  padding: 16px;
+}
+
+.ask-controls {
+  border-top: 0;
+}
+
+.answer-panel {
+  padding: 16px;
+}
+
+.search-results {
+  padding: 16px;
+}
+
 .provider-card {
   grid-column: 1 / -1;
 }
@@ -888,6 +924,8 @@ h2 {
   .context-selector,
   .project-form,
   .project-memory-layout,
+  .search-controls,
+  .search-workspace,
   .settings-form-grid {
     grid-template-columns: 1fr;
   }

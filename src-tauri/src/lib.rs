@@ -3,7 +3,9 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::hash_map::DefaultHasher;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -35,6 +37,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         name: "0004_artefact_generation",
         sql: include_str!("../migrations/0004_artefact_generation.sql"),
+    },
+    Migration {
+        name: "0005_search_recall",
+        sql: include_str!("../migrations/0005_search_recall.sql"),
     },
 ];
 
@@ -162,6 +168,21 @@ struct SaveArtefactInput {
     model: Option<String>,
     provider: Option<String>,
     context: Vec<SelectedContextItem>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchInput {
+    query: String,
+    project_id: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AskInput {
+    question: String,
+    project_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -308,6 +329,43 @@ struct SelectedContextItem {
     item_type: String,
     item_id: String,
     title: String,
+}
+
+#[derive(Clone)]
+struct SearchEntity {
+    entity_type: String,
+    entity_id: String,
+    title: String,
+    body: String,
+    project_id: Option<String>,
+    project_name: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct IndexResult {
+    indexed: usize,
+    skipped: usize,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SearchResult {
+    entity_type: String,
+    entity_id: String,
+    title: String,
+    snippet: String,
+    project_id: Option<String>,
+    project_name: Option<String>,
+    score: f64,
+    match_kind: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AskAnswer {
+    answer_markdown: String,
+    results: Vec<SearchResult>,
 }
 
 #[derive(Serialize)]
@@ -861,6 +919,67 @@ fn call_provider_for_markdown(settings: &ProviderSettings, prompt: &str) -> Resu
     }
 }
 
+fn call_provider_for_embedding(
+    settings: &ProviderSettings,
+    input: &str,
+) -> Result<Vec<f64>, String> {
+    let model = settings
+        .embedding_model
+        .as_ref()
+        .filter(|model| !model.trim().is_empty())
+        .ok_or_else(|| "embedding model is required for semantic search".to_string())?;
+
+    if settings.provider_type == "ollama" {
+        let response: Value = Client::new()
+            .post(format!("{}/api/embeddings", provider_base_url(settings)))
+            .json(&json!({ "model": model, "prompt": input }))
+            .send()
+            .map_err(|error| format!("Ollama embedding request failed: {error}"))?
+            .error_for_status()
+            .map_err(|error| format!("Ollama embedding returned an error: {error}"))?
+            .json()
+            .map_err(|error| format!("Ollama embedding response was not JSON: {error}"))?;
+        parse_embedding_array(&response["embedding"])
+    } else {
+        let api_key = settings
+            .api_key
+            .as_ref()
+            .ok_or_else(|| "API key is required for embeddings".to_string())?;
+        let mut headers = HeaderMap::new();
+        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {api_key}"))
+                .map_err(|error| format!("provider API key could not be used: {error}"))?,
+        );
+        let response: Value = Client::new()
+            .post(format!("{}/embeddings", provider_base_url(settings)))
+            .headers(headers)
+            .json(&json!({ "model": model, "input": input }))
+            .send()
+            .map_err(|error| format!("embedding request failed: {error}"))?
+            .error_for_status()
+            .map_err(|error| format!("embedding provider returned an error: {error}"))?
+            .json()
+            .map_err(|error| format!("embedding response was not JSON: {error}"))?;
+        parse_embedding_array(&response["data"][0]["embedding"])
+    }
+}
+
+fn parse_embedding_array(value: &Value) -> Result<Vec<f64>, String> {
+    let values = value
+        .as_array()
+        .ok_or_else(|| "embedding response did not include a vector".to_string())?;
+    values
+        .iter()
+        .map(|value| {
+            value
+                .as_f64()
+                .ok_or_else(|| "embedding vector contained a non-number".to_string())
+        })
+        .collect()
+}
+
 fn call_openai_compatible_chat(
     settings: &ProviderSettings,
     prompt: &str,
@@ -1403,6 +1522,184 @@ fn list_artefacts(
 #[tauri::command]
 fn get_artefact(state: tauri::State<'_, AppState>, id: String) -> Result<ProjectArtefact, String> {
     with_database(&state, |connection| get_project_artefact(connection, &id))
+}
+
+#[tauri::command]
+fn index_search_context(
+    state: tauri::State<'_, AppState>,
+    project_id: Option<String>,
+) -> Result<IndexResult, String> {
+    let (settings, entities) = with_database(&state, |connection| {
+        Ok((
+            load_provider_settings(connection)?,
+            load_search_entities(connection, project_id.as_deref())?,
+        ))
+    })?;
+
+    let model = settings
+        .embedding_model
+        .clone()
+        .ok_or_else(|| "embedding model is required for indexing".to_string())?;
+    let mut indexed = 0;
+    let mut skipped = 0;
+
+    for entity in entities {
+        let content = entity_search_text(&entity);
+        let content_hash = content_hash(&content);
+        let should_skip = with_database(&state, |connection| {
+            embedding_is_current(
+                connection,
+                &entity.entity_type,
+                &entity.entity_id,
+                &settings.provider_type,
+                &model,
+                &content_hash,
+            )
+        })?;
+
+        if should_skip {
+            skipped += 1;
+            continue;
+        }
+
+        let vector = call_provider_for_embedding(&settings, &content)?;
+        with_database(&state, |connection| {
+            save_embedding(
+                connection,
+                &entity.entity_type,
+                &entity.entity_id,
+                &settings.provider_type,
+                &model,
+                &content_hash,
+                &vector,
+            )
+        })?;
+        indexed += 1;
+    }
+
+    Ok(IndexResult { indexed, skipped })
+}
+
+#[tauri::command]
+fn search_context(
+    state: tauri::State<'_, AppState>,
+    input: SearchInput,
+) -> Result<Vec<SearchResult>, String> {
+    let query = input.query.trim().to_string();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let limit = input.limit.unwrap_or(10).clamp(1, 25);
+    let settings = with_database(&state, load_provider_settings)?;
+    let query_embedding = call_provider_for_embedding(&settings, &query).ok();
+
+    with_database(&state, |connection| {
+        search_context_local(
+            connection,
+            &query,
+            query_embedding.as_deref(),
+            input.project_id.as_deref(),
+            limit,
+        )
+    })
+}
+
+#[tauri::command]
+fn ask_context(state: tauri::State<'_, AppState>, input: AskInput) -> Result<AskAnswer, String> {
+    let question = input.question.trim().to_string();
+    if question.is_empty() {
+        return Err("question is required".to_string());
+    }
+
+    let settings = with_database(&state, load_provider_settings)?;
+    let query_embedding = call_provider_for_embedding(&settings, &question).ok();
+    let results = with_database(&state, |connection| {
+        search_context_local(
+            connection,
+            &question,
+            query_embedding.as_deref(),
+            input.project_id.as_deref(),
+            8,
+        )
+    })?;
+
+    if results.is_empty() {
+        return Ok(AskAnswer {
+            answer_markdown:
+                "No local Signal Box memory matched this question. Add or index relevant captures first."
+                    .to_string(),
+            results,
+        });
+    }
+
+    let context = results
+        .iter()
+        .map(|result| {
+            format!(
+                "- [{}:{}] {} — {}",
+                result.entity_type, result.entity_id, result.title, result.snippet
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let prompt = format!(
+        "Answer this question using only the local Signal Box context below. If the context is insufficient, say so. Cite local records with [type:id].\n\nQuestion: {question}\n\nContext:\n{context}"
+    );
+    let answer_markdown = call_provider_for_markdown(&settings, &prompt)?;
+
+    Ok(AskAnswer {
+        answer_markdown,
+        results,
+    })
+}
+
+#[tauri::command]
+fn project_recall(
+    state: tauri::State<'_, AppState>,
+    project_id: String,
+) -> Result<AskAnswer, String> {
+    let settings = with_database(&state, load_provider_settings)?;
+    let memory = with_database(&state, |connection| {
+        load_project_memory(connection, &project_id)
+    })?;
+    let mut context = vec![format!(
+        "Project: {}\nCurrent direction: {}\nOverview: {}",
+        memory.project.name, memory.project.current_direction, memory.project.overview
+    )];
+    context.extend(
+        memory
+            .decisions
+            .iter()
+            .map(|item| format!("Decision [{}]: {}", item.id, item.decision)),
+    );
+    context.extend(
+        memory
+            .questions
+            .iter()
+            .map(|item| format!("Question [{}]: {}", item.id, item.question)),
+    );
+    context.extend(
+        memory
+            .tasks
+            .iter()
+            .map(|item| format!("Task [{}]: {} ({})", item.id, item.title, item.status)),
+    );
+
+    let prompt = format!(
+        "Return a project recall summary grounded only in this local memory. Use sections: Current state, Key decisions, Open questions, Suggested next action. Cite local records where practical.\n\n{}",
+        context.join("\n")
+    );
+    let answer_markdown = call_provider_for_markdown(&settings, &prompt)?;
+    let results = with_database(&state, |connection| {
+        search_context_local(connection, "project recall", None, Some(&project_id), 8)
+    })
+    .unwrap_or_default();
+
+    Ok(AskAnswer {
+        answer_markdown,
+        results,
+    })
 }
 
 #[tauri::command]
@@ -2474,6 +2771,329 @@ fn artefact_instructions(artefact_type: &str) -> &'static str {
     }
 }
 
+fn load_search_entities(
+    connection: &Connection,
+    project_id: Option<&str>,
+) -> Result<Vec<SearchEntity>, String> {
+    let mut entities = Vec::new();
+    collect_search_entities(
+        connection,
+        "capture",
+        "SELECT captures.id,
+                COALESCE(captures.title, 'Untitled capture') AS title,
+                captures.raw_text AS body,
+                captures.project_id,
+                projects.name AS project_name
+         FROM captures
+         LEFT JOIN projects ON projects.id = captures.project_id",
+        project_id,
+        &mut entities,
+    )?;
+    collect_search_entities(
+        connection,
+        "project",
+        "SELECT projects.id,
+                projects.name AS title,
+                COALESCE(projects.overview, projects.memory, projects.description, projects.summary, '') AS body,
+                projects.id AS project_id,
+                projects.name AS project_name
+         FROM projects",
+        project_id,
+        &mut entities,
+    )?;
+    collect_search_entities(
+        connection,
+        "decision",
+        "SELECT decisions.id,
+                decisions.title,
+                decisions.decision || ' ' || COALESCE(decisions.rationale, '') AS body,
+                decisions.project_id,
+                projects.name AS project_name
+         FROM decisions
+         LEFT JOIN projects ON projects.id = decisions.project_id",
+        project_id,
+        &mut entities,
+    )?;
+    collect_search_entities(
+        connection,
+        "task",
+        "SELECT tasks.id,
+                tasks.title,
+                COALESCE(tasks.description, tasks.status) AS body,
+                tasks.project_id,
+                projects.name AS project_name
+         FROM tasks
+         LEFT JOIN projects ON projects.id = tasks.project_id",
+        project_id,
+        &mut entities,
+    )?;
+    collect_search_entities(
+        connection,
+        "question",
+        "SELECT questions.id,
+                questions.question AS title,
+                COALESCE(questions.answer, questions.status) AS body,
+                questions.project_id,
+                projects.name AS project_name
+         FROM questions
+         LEFT JOIN projects ON projects.id = questions.project_id",
+        project_id,
+        &mut entities,
+    )?;
+    collect_search_entities(
+        connection,
+        "source",
+        "SELECT sources.id,
+                sources.title,
+                COALESCE(sources.notes, sources.raw_excerpt, sources.raw_reference, sources.url, '') AS body,
+                sources.project_id,
+                projects.name AS project_name
+         FROM sources
+         LEFT JOIN projects ON projects.id = sources.project_id",
+        project_id,
+        &mut entities,
+    )?;
+    collect_search_entities(
+        connection,
+        "artefact",
+        "SELECT artefacts.id,
+                artefacts.title,
+                COALESCE(artefacts.body_markdown, artefacts.markdown_body) AS body,
+                artefacts.project_id,
+                projects.name AS project_name
+         FROM artefacts
+         LEFT JOIN projects ON projects.id = artefacts.project_id",
+        project_id,
+        &mut entities,
+    )?;
+
+    Ok(entities)
+}
+
+fn collect_search_entities(
+    connection: &Connection,
+    entity_type: &str,
+    base_sql: &str,
+    project_id: Option<&str>,
+    entities: &mut Vec<SearchEntity>,
+) -> Result<(), String> {
+    let mut statement = connection
+        .prepare(base_sql)
+        .map_err(|error| format!("could not prepare {entity_type} search entity query: {error}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(SearchEntity {
+                entity_type: entity_type.to_string(),
+                entity_id: row.get("id")?,
+                title: row.get("title")?,
+                body: row.get("body")?,
+                project_id: row.get("project_id")?,
+                project_name: row.get("project_name")?,
+            })
+        })
+        .map_err(|error| format!("could not query {entity_type} search entities: {error}"))?;
+
+    for row in rows {
+        let entity = row.map_err(|error| format!("could not read search entity: {error}"))?;
+        if project_id.is_none() || entity.project_id.as_deref() == project_id {
+            entities.push(entity);
+        }
+    }
+
+    Ok(())
+}
+
+fn entity_search_text(entity: &SearchEntity) -> String {
+    format!("{}: {}\n{}", entity.entity_type, entity.title, entity.body)
+}
+
+fn content_hash(content: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    content.hash(&mut hasher);
+    format!("{:x}", hasher.finish())
+}
+
+fn embedding_is_current(
+    connection: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+    provider: &str,
+    model: &str,
+    content_hash: &str,
+) -> Result<bool, String> {
+    let existing: Option<String> = connection
+        .query_row(
+            "SELECT content_hash FROM embeddings
+             WHERE owner_type = ?1
+               AND owner_id = ?2
+               AND provider = ?3
+               AND model = ?4
+             LIMIT 1",
+            params![entity_type, entity_id, provider, model],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("could not check embedding state: {error}"))?;
+
+    Ok(existing.as_deref() == Some(content_hash))
+}
+
+fn save_embedding(
+    connection: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+    provider: &str,
+    model: &str,
+    content_hash: &str,
+    vector: &[f64],
+) -> Result<(), String> {
+    let vector_json = serde_json::to_string(vector)
+        .map_err(|error| format!("could not serialize embedding vector: {error}"))?;
+    connection
+        .execute(
+            "DELETE FROM embeddings
+             WHERE owner_type = ?1
+               AND owner_id = ?2
+               AND provider = ?3
+               AND model = ?4",
+            params![entity_type, entity_id, provider, model],
+        )
+        .map_err(|error| format!("could not replace embedding: {error}"))?;
+    connection
+        .execute(
+            "INSERT INTO embeddings (
+               id, entity_type, entity_id, owner_type, owner_id, provider, model,
+               dimensions, embedding, vector_json, content_hash
+             )
+             VALUES (?1, ?2, ?3, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)",
+            params![
+                make_id("embedding"),
+                entity_type,
+                entity_id,
+                provider,
+                model,
+                vector.len() as i64,
+                vector_json,
+                content_hash
+            ],
+        )
+        .map_err(|error| format!("could not save embedding: {error}"))?;
+    Ok(())
+}
+
+fn search_context_local(
+    connection: &Connection,
+    query: &str,
+    query_embedding: Option<&[f64]>,
+    project_id: Option<&str>,
+    limit: usize,
+) -> Result<Vec<SearchResult>, String> {
+    let entities = load_search_entities(connection, project_id)?;
+    let query_lower = query.to_lowercase();
+    let mut results = Vec::new();
+
+    for entity in entities {
+        let content = entity_search_text(&entity);
+        let lower = content.to_lowercase();
+        let keyword_score = if lower.contains(&query_lower) {
+            1.0
+        } else {
+            query_lower
+                .split_whitespace()
+                .filter(|term| lower.contains(term))
+                .count() as f64
+                / query_lower.split_whitespace().count().max(1) as f64
+        };
+        let semantic_score = if let Some(query_embedding) = query_embedding {
+            load_entity_embedding(connection, &entity.entity_type, &entity.entity_id)?
+                .and_then(|vector| cosine_similarity(query_embedding, &vector))
+                .unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        let score = semantic_score.max(keyword_score);
+
+        if score <= 0.0 {
+            continue;
+        }
+
+        results.push(SearchResult {
+            entity_type: entity.entity_type,
+            entity_id: entity.entity_id,
+            title: entity.title,
+            snippet: snippet(&entity.body, query),
+            project_id: entity.project_id,
+            project_name: entity.project_name,
+            score,
+            match_kind: if semantic_score >= keyword_score && semantic_score > 0.0 {
+                "semantic".to_string()
+            } else {
+                "keyword".to_string()
+            },
+        });
+    }
+
+    results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    results.truncate(limit);
+    Ok(results)
+}
+
+fn load_entity_embedding(
+    connection: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Option<Vec<f64>>, String> {
+    let value: Option<String> = connection
+        .query_row(
+            "SELECT COALESCE(embedding, vector_json)
+             FROM embeddings
+             WHERE owner_type = ?1 AND owner_id = ?2
+             ORDER BY datetime(updated_at) DESC
+             LIMIT 1",
+            params![entity_type, entity_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("could not load embedding: {error}"))?;
+    value
+        .map(|value| {
+            serde_json::from_str(&value)
+                .map_err(|error| format!("embedding vector was invalid JSON: {error}"))
+        })
+        .transpose()
+}
+
+fn cosine_similarity(a: &[f64], b: &[f64]) -> Option<f64> {
+    if a.len() != b.len() || a.is_empty() {
+        return None;
+    }
+
+    let dot = a
+        .iter()
+        .zip(b)
+        .map(|(left, right)| left * right)
+        .sum::<f64>();
+    let a_norm = a.iter().map(|value| value * value).sum::<f64>().sqrt();
+    let b_norm = b.iter().map(|value| value * value).sum::<f64>().sqrt();
+    if a_norm == 0.0 || b_norm == 0.0 {
+        None
+    } else {
+        Some(dot / (a_norm * b_norm))
+    }
+}
+
+fn snippet(body: &str, query: &str) -> String {
+    let condensed = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    let query_lower = query.to_lowercase();
+    let lower = condensed.to_lowercase();
+    let start = lower.find(&query_lower).unwrap_or(0).saturating_sub(80);
+    condensed.chars().skip(start).take(220).collect()
+}
+
 fn load_capture_distillation(
     connection: &Connection,
     id: &str,
@@ -2985,6 +3605,10 @@ pub fn run() {
             save_artefact,
             list_artefacts,
             get_artefact,
+            index_search_context,
+            search_context,
+            ask_context,
+            project_recall,
             update_capture_status,
             update_capture_project,
             accept_suggested_project,
@@ -3022,7 +3646,7 @@ mod tests {
         assert!(database.database_path.exists());
         assert_eq!(
             database.latest_migration.as_deref(),
-            Some("0004_artefact_generation")
+            Some("0005_search_recall")
         );
 
         let table_count: i64 = database
@@ -3090,5 +3714,17 @@ mod tests {
             .expect("artefact generation columns are queryable");
 
         assert_eq!(has_artefact_columns, 4);
+
+        let has_search_columns: i64 = database
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('embeddings')
+                 WHERE name IN ('entity_type', 'entity_id', 'embedding')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("search recall columns are queryable");
+
+        assert_eq!(has_search_columns, 3);
     }
 }
