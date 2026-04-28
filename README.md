@@ -4,6 +4,16 @@ A local-first AI inbox that turns developer brain-dump into project memory and s
 
 Signal Box is not a general notes app, journal, task manager, or wellness tool. It is a private thinking inbox for developers and builders: capture rough context, distil it into structured project memory, then generate useful development artefacts from it.
 
+## Alpha Status
+
+The alpha workflow is implemented and verified:
+
+```text
+Capture -> Distil -> Attach to project -> Generate artefact -> Reuse later
+```
+
+The desktop app supports quick capture, local SQLite storage, BYOK AI distillation, project memory, artefact generation, semantic search, grounded ask, project recall, and local backup export.
+
 ## Product Thesis
 
 Developer context decays before it becomes useful.
@@ -37,14 +47,11 @@ Signal Box turns raw captures into structured developer outputs:
 - implementation plans
 - architecture decision records
 - coding-agent prompts
-- GitHub issue drafts
-- PR descriptions
 - product briefs
-- changelogs
-- research briefs
-- comparison notes
 - blog or LinkedIn drafts
 - project memory
+
+Future artefact types may include GitHub issue drafts, PR descriptions, technical specs, changelogs, release notes, research briefs, and comparison notes.
 
 The core job-to-be-done is:
 
@@ -84,9 +91,9 @@ Initial artefact types:
 
 External or pasted context linked to captures, projects, decisions, and artefacts. Sources can include docs pages, repos, articles, PDFs, AI chat exports, screenshots, copied messages, or terminal output.
 
-## MVP
+## Alpha Workflow
 
-The alpha version should validate one complete workflow:
+The alpha validates one complete workflow:
 
 1. Capture rough text with a global hotkey.
 2. Store raw captures locally.
@@ -129,9 +136,9 @@ Explicitly out of scope for v1:
 
 ## Technical Direction
 
-This repo starts as a Tauri + TypeScript + React app.
+This repo is a Tauri + TypeScript + React app.
 
-Likely stack:
+Implemented stack:
 
 - Tauri
 - React
@@ -143,11 +150,11 @@ Likely stack:
 - OpenAI/OpenRouter-compatible provider abstraction
 - local Ollama-compatible provider support
 - embeddings via a configured OpenRouter-compatible embedding model
-- local vector storage, SQLite vector extension, or a simple embeddings table
+- local embeddings table
 
 The important data-model choice is to store structured extracted objects separately from raw captures. Markdown can be useful for rendering and export, but Signal Box's power comes from preserving raw input while creating queryable structure beside it.
 
-Likely early tables:
+Core tables:
 
 - `captures`
 - `projects`
@@ -158,6 +165,7 @@ Likely early tables:
 - `artefacts`
 - `relationships`
 - `embeddings`
+- `settings`
 
 ## Development
 

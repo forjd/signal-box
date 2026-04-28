@@ -3,11 +3,11 @@ id: alpha-roadmap
 title: Alpha Roadmap
 type: roadmap
 phase: 0
-status: planned
+status: verified
 created: 2026-04-28T19:06:10Z
-updated: 2026-04-28T19:36:26Z
-verified_at: null
-verified_by: null
+updated: 2026-04-28T21:04:35Z
+verified_at: 2026-04-28T21:04:35Z
+verified_by: codex
 related_scope: docs/scope.md
 ---
 
@@ -24,6 +24,18 @@ Capture -> Distil -> Attach to project -> Generate artefact -> Reuse later
 ```
 
 The product should help a developer return to a cold project and understand where they left off.
+
+## Completion Status
+
+Alpha is implemented and verified against all phase plans.
+
+- [Foundation](01-foundation.md): verified.
+- [Capture Inbox](02-capture-inbox.md): verified.
+- [AI Provider and Distillation](03-ai-provider-distillation.md): verified.
+- [Project Memory](04-project-memory.md): verified.
+- [Artefact Generation](05-artefact-generation.md): verified.
+- [Search and Recall](06-search-recall.md): verified.
+- [Alpha Demo Polish](07-polish-alpha-demo.md): verified.
 
 ## Scope
 
@@ -147,7 +159,7 @@ verified_by: null
 
 ## Risks / Open Questions
 
-- Which provider should be the recommended first-run default?
-- Which embedding model should be suggested for OpenRouter users?
-- Whether Ollama support should include embeddings in alpha or only chat/generation.
-- Whether the dedicated popover should be a separate Tauri window or a compact always-on-top app window.
+- Provider settings default to OpenAI with BYOK, while OpenRouter and Ollama remain selectable.
+- Embeddings use the configured embedding model from local provider settings.
+- Ollama supports local generation and embedding calls where the configured local endpoint/model supports them.
+- Quick capture is implemented as a dedicated Tauri popover window opened by `CommandOrControl+Shift+Space`.
