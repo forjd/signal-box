@@ -6,6 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "format": "bun run format:web && bun run format:rust",
+    "format:check": "bun run format:web:check && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
+    "format:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml",
+    "format:web": "oxfmt src package.json tsconfig.json tsconfig.node.json vite.config.ts",
+    "format:web:check": "oxfmt --check src package.json tsconfig.json tsconfig.node.json vite.config.ts",
+    "lint": "bun run lint:web && bun run lint:rust",
+    "lint:rust": "cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
+    "lint:web": "oxlint src",
+    "check": "bun run format:check && bun run lint && bun run build",
     "db:generate": "drizzle-kit generate",
     "preview": "vite preview",
     "prepare": "husky",
@@ -27,6 +36,8 @@
     "@vitejs/plugin-react": "^4.6.0",
     "drizzle-kit": "^0.31.10",
     "husky": "^9.1.7",
+    "oxfmt": "^0.47.0",
+    "oxlint": "^1.62.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.4"
   }

@@ -14,54 +14,57 @@ type LoadState<T> =
   | { status: "ready"; data: T }
   | { status: "error"; message: string };
 
-const routes: Array<{ id: RouteId; label: string; eyebrow: string; title: string; body: string }> = [
-  {
-    id: "inbox",
-    label: "Inbox",
-    eyebrow: "Capture",
-    title: "No captures yet",
-    body: "The inbox will hold unprocessed developer context while preserving each raw capture.",
-  },
-  {
-    id: "projects",
-    label: "Projects",
-    eyebrow: "Organize",
-    title: "No projects yet",
-    body: "Projects will become the home for captures, decisions, questions, sources, and generated artefacts.",
-  },
-  {
-    id: "memory",
-    label: "Project Memory",
-    eyebrow: "Recall",
-    title: "Project memory is ready for structure",
-    body: "Later phases will attach distilled context to editable project memory.",
-  },
-  {
-    id: "artefacts",
-    label: "Artefacts",
-    eyebrow: "Generate",
-    title: "No artefacts yet",
-    body: "Generated plans, ADRs, prompts, briefs, and drafts will appear here.",
-  },
-  {
-    id: "search",
-    label: "Search / Ask",
-    eyebrow: "Find",
-    title: "Search is reserved",
-    body: "Semantic search and ask flows are out of scope for this foundation phase.",
-  },
-  {
-    id: "settings",
-    label: "Settings",
-    eyebrow: "Local setup",
-    title: "Storage foundation",
-    body: "Signal Box stores local data in the app data directory and runs SQLite migrations on startup.",
-  },
-];
+const routes: Array<{ id: RouteId; label: string; eyebrow: string; title: string; body: string }> =
+  [
+    {
+      id: "inbox",
+      label: "Inbox",
+      eyebrow: "Capture",
+      title: "No captures yet",
+      body: "The inbox will hold unprocessed developer context while preserving each raw capture.",
+    },
+    {
+      id: "projects",
+      label: "Projects",
+      eyebrow: "Organize",
+      title: "No projects yet",
+      body: "Projects will become the home for captures, decisions, questions, sources, and generated artefacts.",
+    },
+    {
+      id: "memory",
+      label: "Project Memory",
+      eyebrow: "Recall",
+      title: "Project memory is ready for structure",
+      body: "Later phases will attach distilled context to editable project memory.",
+    },
+    {
+      id: "artefacts",
+      label: "Artefacts",
+      eyebrow: "Generate",
+      title: "No artefacts yet",
+      body: "Generated plans, ADRs, prompts, briefs, and drafts will appear here.",
+    },
+    {
+      id: "search",
+      label: "Search / Ask",
+      eyebrow: "Find",
+      title: "Search is reserved",
+      body: "Semantic search and ask flows are out of scope for this foundation phase.",
+    },
+    {
+      id: "settings",
+      label: "Settings",
+      eyebrow: "Local setup",
+      title: "Storage foundation",
+      body: "Signal Box stores local data in the app data directory and runs SQLite migrations on startup.",
+    },
+  ];
 
 function App() {
   const [activeRoute, setActiveRoute] = useState<RouteId>("inbox");
-  const [databaseHealth, setDatabaseHealth] = useState<LoadState<DatabaseHealth>>({ status: "loading" });
+  const [databaseHealth, setDatabaseHealth] = useState<LoadState<DatabaseHealth>>({
+    status: "loading",
+  });
   const [metadata, setMetadata] = useState<LoadState<AppMetadata>>({ status: "loading" });
 
   useEffect(() => {
@@ -190,7 +193,9 @@ function SettingsView({
       <section className="panel" aria-labelledby="database-heading">
         <h2 id="database-heading">Database</h2>
         {health.status === "loading" && <LoadingState label="Checking local database" />}
-        {health.status === "error" && <ErrorState title="Database command failed" message={health.message} />}
+        {health.status === "error" && (
+          <ErrorState title="Database command failed" message={health.message} />
+        )}
         {health.status === "ready" &&
           (health.data.ok ? (
             <dl className="detail-list">
@@ -212,14 +217,19 @@ function SettingsView({
               </div>
             </dl>
           ) : (
-            <ErrorState title="Database startup failed" message={health.data.startupError ?? "Unknown startup error"} />
+            <ErrorState
+              title="Database startup failed"
+              message={health.data.startupError ?? "Unknown startup error"}
+            />
           ))}
       </section>
 
       <section className="panel" aria-labelledby="app-heading">
         <h2 id="app-heading">Application</h2>
         {metadata.status === "loading" && <LoadingState label="Loading application metadata" />}
-        {metadata.status === "error" && <ErrorState title="Metadata unavailable" message={metadata.message} />}
+        {metadata.status === "error" && (
+          <ErrorState title="Metadata unavailable" message={metadata.message} />
+        )}
         {metadata.status === "ready" && (
           <dl className="detail-list">
             <div>

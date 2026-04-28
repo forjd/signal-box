@@ -2,8 +2,12 @@ import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 const timestamps = {
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
 };
 
 export const captures = sqliteTable(
@@ -161,7 +165,9 @@ export const settings = sqliteTable(
     key: text("key").primaryKey(),
     valueJson: text("value_json").notNull(),
     isSecret: integer("is_secret", { mode: "boolean" }).notNull().default(false),
-    updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [index("settings_secret_idx").on(table.isSecret)],
 );
