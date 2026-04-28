@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "signal-box",
+  "productName": "Signal Box",
   "version": "0.1.0",
   "identifier": "com.dan.signal-box",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "signal-box",
+        "title": "Signal Box",
         "width": 800,
         "height": 600
       }

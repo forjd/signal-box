@@ -3,11 +3,11 @@ id: phase-01-foundation
 title: Foundation
 type: phase
 phase: 1
-status: planned
+status: verified
 created: 2026-04-28T19:06:10Z
-updated: 2026-04-28T19:12:00Z
-verified_at: null
-verified_by: null
+updated: 2026-04-28T19:26:16Z
+verified_at: 2026-04-28T19:26:16Z
+verified_by: codex
 related_scope: docs/scope.md
 ---
 
@@ -95,3 +95,10 @@ None in this phase, beyond reserving settings fields for provider configuration.
 - Whether all database access should live behind Tauri commands or whether any direct frontend SQLite access is acceptable.
 - How much of the schema should be normalized now versus introduced as later migrations.
 - Whether to keep IDs as text UUIDs from the start for easier export/import later.
+
+## Implementation Notes
+
+- Frontend persistence access now goes through typed Tauri command wrappers.
+- SQLite is initialized by the Tauri backend in the platform app data directory.
+- Drizzle owns the TypeScript schema and generated SQL migration baseline.
+- Initial IDs are text primary keys so later import/export work can use stable identifiers.

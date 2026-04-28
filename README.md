@@ -172,6 +172,18 @@ Build:
 bun run tauri build
 ```
 
+Generate SQLite migrations after changing the Drizzle schema:
+
+```bash
+bun run db:generate
+```
+
+## Local Storage
+
+Signal Box initializes a local SQLite database on desktop app startup. The database is stored in the platform app data directory as `signal-box.sqlite3`, and the Settings screen exposes the resolved path and latest applied migration for troubleshooting.
+
+The Drizzle schema lives at `src/db/schema.ts`. Generated SQL migrations live in `src-tauri/migrations/` and are applied by the Tauri backend before the frontend checks database health.
+
 ## Docs
 
 Start with:
