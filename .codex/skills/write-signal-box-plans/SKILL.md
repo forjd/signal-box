@@ -27,8 +27,8 @@ phase: 1
 status: planned
 created: 2026-04-28T19:06:10Z
 updated: 2026-04-28T19:06:10Z
-verified_at:
-verified_by:
+verified_at: null
+verified_by: null
 related_scope: docs/scope.md
 ---
 ```
@@ -42,8 +42,8 @@ Use these frontmatter rules:
 - `status`: one of `planned`, `in-progress`, `implemented`, `needs-work`, `verified`, `superseded`.
 - `created`: UTC ISO-8601 timestamp for initial creation.
 - `updated`: UTC ISO-8601 timestamp for the latest meaningful plan edit.
-- `verified_at`: empty until an audit verifies implementation.
-- `verified_by`: empty until an audit verifies implementation.
+- `verified_at`: `null` until an audit verifies implementation.
+- `verified_by`: `null` until an audit verifies implementation.
 - `related_scope`: usually `docs/scope.md`.
 
 After frontmatter, use this structure for roadmap and phase plans:
@@ -127,6 +127,7 @@ Respect these dependencies:
 - Keep open questions specific enough to unblock planning or implementation decisions.
 - When changing a plan, update the frontmatter `updated` timestamp.
 - Do not set `status: verified`; that belongs to the plan audit workflow after implementation has been checked.
+- Use explicit `null` for unset frontmatter fields rather than blank values.
 
 ## Signal Box Alpha Decisions
 

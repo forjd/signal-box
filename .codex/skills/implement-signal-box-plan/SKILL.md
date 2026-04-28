@@ -16,7 +16,7 @@ description: Implement Signal Box planning documents. Use when Codex is asked to
 7. Update documentation for user-facing, setup, architecture, database, or operational changes.
 8. Run relevant checks.
 9. Update the target plan status to `implemented` when the implementation is complete and ready for audit.
-10. Leave `verified_at` and `verified_by` empty. Verification belongs to `$audit-signal-box-plan`.
+10. Leave `verified_at: null` and `verified_by: null`. Verification belongs to `$audit-signal-box-plan`.
 
 ## Status Rules
 
@@ -35,7 +35,7 @@ When changing frontmatter:
 
 - Always update `updated` to the current UTC ISO-8601 timestamp.
 - Leave `created` unchanged.
-- Leave `verified_at` and `verified_by` empty unless they already contain a value and the user explicitly asks to preserve or clear them.
+- Leave `verified_at` and `verified_by` as `null` unless they already contain a value and the user explicitly asks to preserve or clear them.
 
 ## Implementation Rules
 

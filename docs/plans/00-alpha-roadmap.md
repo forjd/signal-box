@@ -5,9 +5,9 @@ type: roadmap
 phase: 0
 status: planned
 created: 2026-04-28T19:06:10Z
-updated: 2026-04-28T19:06:10Z
-verified_at:
-verified_by:
+updated: 2026-04-28T19:12:00Z
+verified_at: null
+verified_by: null
 related_scope: docs/scope.md
 ---
 
@@ -80,6 +80,31 @@ Foundation
 ```
 
 Search can begin after the core schema exists, but it should not replace the structured object model. Artefact generation should wait until captures, projects, and extracted objects have stable relationships.
+
+## Plan Status Lifecycle
+
+Plan frontmatter uses `status` to track where each phase is in the delivery lifecycle:
+
+- `planned`: work has not started.
+- `in-progress`: implementation is underway.
+- `implemented`: implementation is complete and ready for audit, but not verified.
+- `needs-work`: implementation or plan content has unresolved gaps.
+- `verified`: implementation has been audited against the plan and relevant checks passed.
+- `superseded`: the plan is no longer the source of truth.
+
+Expected lifecycle:
+
+```text
+planned -> in-progress -> implemented -> verified
+                         -> needs-work
+```
+
+Only the audit workflow should set `status: verified`. Unset verification fields should use explicit null values:
+
+```yaml
+verified_at: null
+verified_by: null
+```
 
 ## Full Alpha Acceptance Criteria
 
