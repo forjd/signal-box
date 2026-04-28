@@ -67,6 +67,8 @@ bun run dev
 
 - Keep changes scoped and aligned with the alpha scope in `docs/scope.md`.
 - When creating or updating planning documents, use the repo-local skill at `.codex/skills/write-signal-box-plans`.
+- When implementing a planning document, use the repo-local skill at `.codex/skills/implement-signal-box-plan`.
+- When auditing implementation against a plan, use the repo-local skill at `.codex/skills/audit-signal-box-plan`.
 - Prefer simple, explicit data models over markdown-only storage.
 - Do not introduce sync, team features, mobile support, passive OS-wide capture, complex markdown editing, graph views, or plugin systems unless explicitly requested.
 - When adding AI features, keep provider-specific code behind a small abstraction.

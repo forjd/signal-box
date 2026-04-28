@@ -1,3 +1,16 @@
+---
+id: phase-02-capture-inbox
+title: Capture Inbox
+type: phase
+phase: 2
+status: planned
+created: 2026-04-28T19:06:10Z
+updated: 2026-04-28T19:06:10Z
+verified_at:
+verified_by:
+related_scope: docs/scope.md
+---
+
 # Phase 2: Capture Inbox
 
 ## Goal

@@ -1,3 +1,16 @@
+---
+id: phase-06-search-recall
+title: Search and Recall
+type: phase
+phase: 6
+status: planned
+created: 2026-04-28T19:06:10Z
+updated: 2026-04-28T19:06:10Z
+verified_at:
+verified_by:
+related_scope: docs/scope.md
+---
+
 # Phase 6: Search and Recall
 
 ## Goal

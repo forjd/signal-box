@@ -1,3 +1,16 @@
+---
+id: phase-07-polish-alpha-demo
+title: Alpha Demo Polish
+type: phase
+phase: 7
+status: planned
+created: 2026-04-28T19:06:10Z
+updated: 2026-04-28T19:06:10Z
+verified_at:
+verified_by:
+related_scope: docs/scope.md
+---
+
 # Phase 7: Alpha Demo Polish
 
 ## Goal

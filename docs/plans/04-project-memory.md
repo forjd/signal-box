@@ -1,3 +1,16 @@
+---
+id: phase-04-project-memory
+title: Project Memory
+type: phase
+phase: 4
+status: planned
+created: 2026-04-28T19:06:10Z
+updated: 2026-04-28T19:06:10Z
+verified_at:
+verified_by:
+related_scope: docs/scope.md
+---
+
 # Phase 4: Project Memory
 
 ## Goal

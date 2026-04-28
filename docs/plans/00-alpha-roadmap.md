@@ -1,3 +1,16 @@
+---
+id: alpha-roadmap
+title: Alpha Roadmap
+type: roadmap
+phase: 0
+status: planned
+created: 2026-04-28T19:06:10Z
+updated: 2026-04-28T19:06:10Z
+verified_at:
+verified_by:
+related_scope: docs/scope.md
+---
+
 # Alpha Roadmap
 
 ## Goal

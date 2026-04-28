@@ -16,7 +16,37 @@ description: Create or update Signal Box planning documents. Use when writing do
 
 ## Standard Plan Files
 
-Use this structure for roadmap and phase plans:
+Start every plan file with YAML frontmatter:
+
+```yaml
+---
+id: phase-01-foundation
+title: Foundation
+type: phase
+phase: 1
+status: planned
+created: 2026-04-28T19:06:10Z
+updated: 2026-04-28T19:06:10Z
+verified_at:
+verified_by:
+related_scope: docs/scope.md
+---
+```
+
+Use these frontmatter rules:
+
+- `id`: stable lowercase kebab-case identifier.
+- `title`: human-readable plan title.
+- `type`: `roadmap`, `phase`, or `implementation-plan`.
+- `phase`: phase number, or `0` for roadmap files.
+- `status`: one of `planned`, `in-progress`, `implemented`, `needs-work`, `verified`, `superseded`.
+- `created`: UTC ISO-8601 timestamp for initial creation.
+- `updated`: UTC ISO-8601 timestamp for the latest meaningful plan edit.
+- `verified_at`: empty until an audit verifies implementation.
+- `verified_by`: empty until an audit verifies implementation.
+- `related_scope`: usually `docs/scope.md`.
+
+After frontmatter, use this structure for roadmap and phase plans:
 
 ```md
 # Phase N: Name
@@ -95,6 +125,8 @@ Respect these dependencies:
 - Put deferred features in `Out of Scope` instead of quietly omitting them.
 - Write acceptance criteria as user-verifiable outcomes.
 - Keep open questions specific enough to unblock planning or implementation decisions.
+- When changing a plan, update the frontmatter `updated` timestamp.
+- Do not set `status: verified`; that belongs to the plan audit workflow after implementation has been checked.
 
 ## Signal Box Alpha Decisions
 

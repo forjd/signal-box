@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement Signal Box Plan"
+  short_description: "Implement Signal Box phase plans"
+  default_prompt: "Use $implement-signal-box-plan to implement a Signal Box phase from docs/plans and update its plan status."

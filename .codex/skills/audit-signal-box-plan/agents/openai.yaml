@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audit Signal Box Plan"
+  short_description: "Audit implemented Signal Box plans"
+  default_prompt: "Use $audit-signal-box-plan to compare an implemented Signal Box phase against its plan and update plan frontmatter status."
