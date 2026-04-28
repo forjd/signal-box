@@ -160,7 +160,7 @@ Key decisions:
 Open questions:
 - Should voice be in v1?
 - Should GitHub integration come early?
-- Should the app support BYOK from day one?
+- Which provider should the user configure first?
 ```
 
 This is the surface to obsess over.
@@ -215,6 +215,8 @@ Artefact types:
 Most notes apps stop at storage. Signal Box should ask:
 
 > What can this become?
+
+Artefacts should be saved as structured records with metadata and a rendered markdown body. The saved record should link back to the captures, project memory, decisions, sources, and other context used to generate it.
 
 ### Source
 
@@ -406,7 +408,7 @@ Surfacing unresolved loops is part of the magic.
 
 ### Capture Modal
 
-Opened by global hotkey.
+Opened by global hotkey in a dedicated quick-capture popover window.
 
 Fields:
 
@@ -462,6 +464,8 @@ Questions
 ```
 
 The overview should be AI-maintained but user-editable.
+
+Captures can remain unassigned while the app suggests the best matching project. Use an `Unassigned` inbox/project state rather than forcing project creation or assignment before processing.
 
 ### Artefact Generator
 
@@ -521,11 +525,14 @@ Build this first:
 - React
 - TypeScript
 - global hotkey
-- quick text capture
+- dedicated quick-capture popover window
 - SQLite storage
+- Drizzle schema and migrations
 - inbox of unprocessed captures
 - projects
+- unassigned capture state with suggested project assignment
 - AI processing button
+- BYOK provider settings for OpenAI/OpenRouter-compatible APIs and local Ollama
 - extraction of:
   - title
   - summary
@@ -535,7 +542,7 @@ Build this first:
   - open questions
   - suggested project
 - saved extracted objects
-- basic semantic search
+- basic semantic search using embeddings
 - project memory page
 - artefact generation from selected notes
 
@@ -582,9 +589,11 @@ Tauri
 React
 TypeScript
 SQLite
-Drizzle or a small typed SQL layer
+Drizzle
 OpenAI/OpenRouter-compatible provider abstraction
-Local vector store or SQLite vector extension if practical
+Local Ollama-compatible provider support
+Embeddings via a configured OpenRouter-compatible embedding model
+Local vector store, SQLite vector extension, or embeddings table
 ```
 
 Likely tables:
@@ -606,6 +615,20 @@ Important design choice:
 > Store structured extracted objects separately from raw captures.
 
 Do not only store markdown blobs. Markdown is useful for rendering and export, but the app's power comes from structure.
+
+Provider strategy:
+
+- v1 is BYOK-only.
+- Support OpenAI-compatible API providers, including OpenAI and OpenRouter.
+- Support local Ollama-compatible models where practical.
+- Keep model/provider-specific code behind a small abstraction so extraction, embeddings, search, and artefact generation do not depend directly on one vendor SDK.
+
+Search strategy:
+
+- Semantic search is required for the alpha.
+- Use an embedding model from the configured OpenRouter-compatible provider for the first implementation.
+- Store embeddings locally and link them to captures, projects, decisions, questions, sources, and artefacts as needed.
+- A simpler keyword search can exist alongside semantic search, but it is not a replacement for the required alpha search capability.
 
 ## Developer-Specific Feature Ideas
 
@@ -709,13 +732,14 @@ Initial developer-friendly model:
 ```text
 Free local app
 Pro licence: GBP 49-79 one-time
-BYOK for AI providers
+BYOK for AI providers and/or local Ollama
 Optional managed AI later
 ```
 
 Reasons:
 
 - developers like BYOK
+- developers value local model support
 - lower infrastructure liability
 - easier to launch without premature subscription pressure
 - local-first desktop apps pair naturally with a license model

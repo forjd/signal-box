@@ -99,14 +99,17 @@ Must-have capabilities:
 
 - Tauri desktop app
 - global hotkey
-- quick text capture
+- dedicated quick-capture popover window
 - SQLite storage
+- Drizzle schema and migrations
 - inbox of unprocessed captures
 - projects
+- unassigned capture state with suggested project assignment
 - AI processing button
+- BYOK provider settings for OpenAI/OpenRouter-compatible APIs and local Ollama
 - extraction of title, summary, type, tasks, decisions, open questions, and suggested project
 - saved structured objects
-- basic semantic search
+- basic semantic search using embeddings
 - project memory page
 - artefact generation from selected context
 
@@ -134,8 +137,10 @@ Likely stack:
 - React
 - TypeScript
 - SQLite
-- Drizzle or a small typed SQL layer
+- Drizzle
 - OpenAI/OpenRouter-compatible provider abstraction
+- local Ollama-compatible provider support
+- embeddings via a configured OpenRouter-compatible embedding model
 - local vector storage, SQLite vector extension, or a simple embeddings table
 
 The important data-model choice is to store structured extracted objects separately from raw captures. Markdown can be useful for rendering and export, but Signal Box's power comes from preserving raw input while creating queryable structure beside it.
@@ -169,4 +174,17 @@ bun run tauri build
 
 ## Docs
 
-See [docs/scope.md](docs/scope.md) for the product scope, positioning, core workflows, and alpha boundaries.
+Start with:
+
+- [docs/scope.md](docs/scope.md) for product scope, positioning, core workflows, and alpha boundaries.
+- [docs/plans/00-alpha-roadmap.md](docs/plans/00-alpha-roadmap.md) for the alpha roadmap and phase order.
+
+Phase plans:
+
+1. [Foundation](docs/plans/01-foundation.md)
+2. [Capture Inbox](docs/plans/02-capture-inbox.md)
+3. [AI Provider and Distillation](docs/plans/03-ai-provider-distillation.md)
+4. [Project Memory](docs/plans/04-project-memory.md)
+5. [Artefact Generation](docs/plans/05-artefact-generation.md)
+6. [Search and Recall](docs/plans/06-search-recall.md)
+7. [Alpha Demo Polish](docs/plans/07-polish-alpha-demo.md)
