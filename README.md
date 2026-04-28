@@ -168,6 +168,8 @@ bun install
 bun run tauri dev
 ```
 
+During desktop development, `CommandOrControl+Shift+Space` opens the dedicated quick-capture popover. Captures are saved as raw text in SQLite, can remain unassigned, and appear in the unprocessed inbox until archived or later processed.
+
 Build:
 
 ```bash
@@ -191,7 +193,7 @@ bun run ui:add button
 
 Signal Box initializes a local SQLite database on desktop app startup. The database is stored in the platform app data directory as `signal-box.sqlite3`, and the Settings screen exposes the resolved path and latest applied migration for troubleshooting.
 
-The Drizzle schema lives at `src/db/schema.ts`. Generated SQL migrations live in `src-tauri/migrations/` and are applied by the Tauri backend before the frontend checks database health.
+The Drizzle schema lives at `src/db/schema.ts`. Generated SQL migrations live in `src-tauri/migrations/` and are applied by the Tauri backend before the frontend checks database health. Capture records preserve `raw_text` and store assignment, source, type, status, and processing/archive metadata beside it.
 
 ## Docs
 

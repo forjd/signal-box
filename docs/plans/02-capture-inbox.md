@@ -3,11 +3,11 @@ id: phase-02-capture-inbox
 title: Capture Inbox
 type: phase
 phase: 2
-status: planned
+status: verified
 created: 2026-04-28T19:06:10Z
-updated: 2026-04-28T19:36:26Z
-verified_at: null
-verified_by: null
+updated: 2026-04-28T20:00:02Z
+verified_at: 2026-04-28T20:00:02Z
+verified_by: codex
 related_scope: docs/scope.md
 ---
 
@@ -116,3 +116,12 @@ None required. The phase can include local heuristics for title fallback, but sh
 - Whether the popover should auto-close after save or stay open for rapid repeated capture.
 - How to avoid hotkey collisions on macOS and Windows.
 - Whether the project selector should allow inline project creation in this phase.
+
+## Implementation Notes
+
+- Quick capture is available in a dedicated `quick-capture` Tauri window and through `CommandOrControl+Shift+Space`.
+- The quick-capture global hotkey is explicitly unregistered during app exit.
+- The quick-capture process stores raw text without AI distillation; the Process now action is a placeholder that saves the raw capture.
+- Capture persistence is exposed through typed Tauri commands for creating captures, listing captures by status, updating status, and updating project assignment.
+- The capture inbox shows unprocessed captures, local type/source hints, unassigned state, preserved raw text detail, metadata, archive controls, and project assignment controls.
+- Capture schema migration `0001_capture_inbox` renames `raw_content` to `raw_text` and adds `project_id`, `source_kind`, and `source`.

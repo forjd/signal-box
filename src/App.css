@@ -175,6 +175,12 @@ button {
   margin-bottom: 32px;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .eyebrow,
 .empty-kicker {
   color: #7b4f2c;
@@ -204,6 +210,7 @@ h2 {
   display: flex;
   min-height: 36px;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   border: 1px solid #d7ddd6;
   border-radius: 8px;
@@ -211,6 +218,218 @@ h2 {
   color: #4e565f;
   padding: 6px 10px;
   font-size: 0.86rem;
+}
+
+.inbox-empty {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.inbox-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 420px) minmax(0, 1fr);
+  gap: 18px;
+  min-height: 0;
+}
+
+.capture-list,
+.capture-detail {
+  min-width: 0;
+  border: 1px solid #d7ddd6;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.capture-list {
+  overflow: hidden;
+}
+
+.list-toolbar,
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid #d7ddd6;
+  padding: 16px;
+}
+
+.capture-list-items {
+  display: grid;
+  max-height: calc(100vh - 180px);
+  overflow: auto;
+}
+
+.capture-row {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  border: 0;
+  border-bottom: 1px solid #e2e6e1;
+  background: transparent;
+  color: #20252b;
+  cursor: pointer;
+  padding: 14px 16px;
+  text-align: left;
+}
+
+.capture-row:hover,
+.capture-row[data-active="true"] {
+  background: #eef2ed;
+}
+
+.capture-row-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid #cdd5cc;
+  border-radius: 8px;
+  color: #4d6254;
+}
+
+.capture-row-icon svg,
+.header-actions svg,
+.list-toolbar svg,
+.detail-header svg,
+.quick-capture-actions svg,
+.source-link svg {
+  width: 16px;
+  height: 16px;
+}
+
+.capture-row-main,
+.capture-row-meta,
+.metadata-strip,
+.source-link {
+  min-width: 0;
+}
+
+.capture-row-main {
+  display: grid;
+  gap: 6px;
+}
+
+.capture-row-main strong,
+.capture-row-main > span:not(.capture-row-meta) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capture-row-main > span:not(.capture-row-meta) {
+  color: #68707a;
+  font-size: 0.88rem;
+}
+
+.capture-row-meta,
+.metadata-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #68707a;
+  font-size: 0.78rem;
+}
+
+.capture-detail {
+  display: grid;
+  align-content: start;
+}
+
+.detail-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 16px;
+}
+
+.form-field {
+  display: grid;
+  gap: 6px;
+  color: #68707a;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.metadata-strip {
+  border-top: 1px solid #e2e6e1;
+  padding: 12px 16px;
+}
+
+.source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  overflow-wrap: anywhere;
+}
+
+.raw-capture {
+  overflow: auto;
+  max-height: calc(100vh - 420px);
+  min-height: 260px;
+  margin: 0;
+  border-top: 1px solid #e2e6e1;
+  border-bottom: 1px solid #e2e6e1;
+  background: #fbfcfa;
+  color: #20252b;
+  padding: 18px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.compact-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 16px;
+}
+
+.quick-capture-shell {
+  display: grid;
+  min-height: 100vh;
+  grid-template-rows: auto minmax(190px, 1fr) auto auto auto;
+  gap: 14px;
+  background: #fbfcfa;
+  padding: 18px;
+}
+
+.quick-capture-header,
+.quick-capture-actions,
+.quick-capture-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quick-capture-header,
+.quick-capture-actions {
+  justify-content: space-between;
+}
+
+.quick-capture-header h1 {
+  font-size: 1.8rem;
+}
+
+.quick-capture-textarea {
+  min-height: 190px;
+  resize: vertical;
+  background: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
+  line-height: 1.5;
+}
+
+.quick-capture-controls {
+  flex-wrap: wrap;
+}
+
+.quick-capture-actions {
+  border-top: 1px solid #d7ddd6;
+  padding-top: 14px;
 }
 
 .empty-state {
@@ -295,6 +514,25 @@ h2 {
 
   .workspace {
     padding: 24px 18px;
+  }
+
+  .header-actions,
+  .quick-capture-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .inbox-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .capture-list-items,
+  .raw-capture {
+    max-height: none;
+  }
+
+  .compact-list {
+    grid-template-columns: 1fr;
   }
 
   h1 {

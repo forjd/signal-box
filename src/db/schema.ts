@@ -14,11 +14,16 @@ export const captures = sqliteTable(
   "captures",
   {
     id: text("id").primaryKey(),
-    rawContent: text("raw_content").notNull(),
+    rawText: text("raw_text").notNull(),
     title: text("title"),
     summary: text("summary"),
     captureType: text("capture_type").notNull().default("note"),
+    sourceKind: text("source_kind").notNull().default("typed"),
+    source: text("source"),
     status: text("status").notNull().default("unprocessed"),
+    projectId: text("project_id").references(() => projects.id, {
+      onDelete: "set null",
+    }),
     suggestedProjectId: text("suggested_project_id").references(() => projects.id, {
       onDelete: "set null",
     }),
@@ -28,7 +33,9 @@ export const captures = sqliteTable(
   },
   (table) => [
     index("captures_status_idx").on(table.status),
+    index("captures_project_idx").on(table.projectId),
     index("captures_suggested_project_idx").on(table.suggestedProjectId),
+    index("captures_source_kind_idx").on(table.sourceKind),
   ],
 );
 
