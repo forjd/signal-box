@@ -185,7 +185,11 @@ export type ProjectSource = {
 export type ProjectArtefact = {
   id: string;
   title: string;
+  summary: string | null;
   artefactType: string;
+  bodyMarkdown: string;
+  model: string | null;
+  provider: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -215,6 +219,43 @@ export type SaveSourceInput = {
   rawExcerpt: string | null;
   notes: string | null;
 };
+
+export type ArtefactType =
+  | "product_brief"
+  | "implementation_plan"
+  | "adr"
+  | "coding_agent_prompt"
+  | "linkedin_blog_draft";
+
+export type SelectedContextItem = {
+  itemType: string;
+  itemId: string;
+  title: string;
+};
+
+export type ArtefactContextSelection = {
+  projectId: string;
+  artefactType: ArtefactType;
+  includeProjectMemory: boolean;
+  captureIds: string[];
+  decisionIds: string[];
+  taskIds: string[];
+  questionIds: string[];
+  sourceIds: string[];
+};
+
+export type ArtefactDraft = {
+  projectId: string;
+  artefactType: ArtefactType;
+  title: string;
+  summary: string | null;
+  bodyMarkdown: string;
+  model: string | null;
+  provider: string | null;
+  context: SelectedContextItem[];
+};
+
+export type SaveArtefactInput = ArtefactDraft;
 
 export function getDatabaseHealth() {
   return invoke<DatabaseHealth>("database_health");
@@ -250,6 +291,22 @@ export function updateProject(id: string, input: SaveProjectInput) {
 
 export function getProjectMemory(id: string) {
   return invoke<ProjectMemory>("get_project_memory", { id });
+}
+
+export function generateArtefact(input: ArtefactContextSelection) {
+  return invoke<ArtefactDraft>("generate_artefact", { input });
+}
+
+export function saveArtefact(input: SaveArtefactInput) {
+  return invoke<ProjectArtefact>("save_artefact", { input });
+}
+
+export function listArtefacts(projectId?: string | null) {
+  return invoke<ProjectArtefact[]>("list_artefacts", { projectId: projectId ?? null });
+}
+
+export function getArtefact(id: string) {
+  return invoke<ProjectArtefact>("get_artefact", { id });
 }
 
 export function updateCaptureStatus(id: string, status: CaptureStatus) {

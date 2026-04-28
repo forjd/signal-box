@@ -174,6 +174,8 @@ AI distillation is BYOK. Configure OpenAI, OpenRouter, or a local Ollama-compati
 
 Projects are the central memory surface. Create projects from the Projects view, attach captures from the inbox, accept matched project suggestions after distillation, then use Project Memory tabs to edit the overview, current direction, tasks, decisions, questions, and sources. Source records can be linked to a project and optionally to a capture so later artefact generation can use the project memory as local context.
 
+The Artefacts view generates the five alpha artefact types from selected project context: product briefs, implementation plans, ADRs, coding-agent prompts, and LinkedIn/blog drafts. Generated markdown can be previewed, copied, saved with provider/model metadata, and linked back to the captures, decisions, tasks, questions, sources, and project memory used to create it.
+
 Build:
 
 ```bash
@@ -197,7 +199,7 @@ bun run ui:add button
 
 Signal Box initializes a local SQLite database on desktop app startup. The database is stored in the platform app data directory as `signal-box.sqlite3`, and the Settings screen exposes the resolved path and latest applied migration for troubleshooting.
 
-The Drizzle schema lives at `src/db/schema.ts`. Generated SQL migrations live in `src-tauri/migrations/` and are applied by the Tauri backend before the frontend checks database health. Capture records preserve `raw_text` and store assignment, source, type, status, provider processing state, and processing/archive metadata beside it. Project memory keeps editable overview fields on `projects`, extracted object provenance through `capture_id`, direct project links on captures/tasks/decisions/questions/sources/artefacts, and relationship rows for reusable context links.
+The Drizzle schema lives at `src/db/schema.ts`. Generated SQL migrations live in `src-tauri/migrations/` and are applied by the Tauri backend before the frontend checks database health. Capture records preserve `raw_text` and store assignment, source, type, status, provider processing state, and processing/archive metadata beside it. Project memory keeps editable overview fields on `projects`, extracted object provenance through `capture_id`, direct project links on captures/tasks/decisions/questions/sources/artefacts, and relationship rows for reusable context links. Artefacts store their rendered markdown body, summary, provider, model, and metadata JSON locally.
 
 Provider settings are stored locally in SQLite under the `settings` table. The alpha marks provider settings as secret records and never echoes saved API keys back to the UI, but platform keychain storage is not yet implemented.
 

@@ -32,6 +32,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "0003_project_memory",
         sql: include_str!("../migrations/0003_project_memory.sql"),
     },
+    Migration {
+        name: "0004_artefact_generation",
+        sql: include_str!("../migrations/0004_artefact_generation.sql"),
+    },
 ];
 
 struct Migration {
@@ -132,6 +136,32 @@ struct SaveSourceInput {
     url: Option<String>,
     raw_excerpt: Option<String>,
     notes: Option<String>,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ArtefactContextSelection {
+    project_id: String,
+    artefact_type: String,
+    include_project_memory: bool,
+    capture_ids: Vec<String>,
+    decision_ids: Vec<String>,
+    task_ids: Vec<String>,
+    question_ids: Vec<String>,
+    source_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveArtefactInput {
+    project_id: String,
+    artefact_type: String,
+    title: String,
+    summary: Option<String>,
+    body_markdown: String,
+    model: Option<String>,
+    provider: Option<String>,
+    context: Vec<SelectedContextItem>,
 }
 
 #[derive(Serialize)]
@@ -250,9 +280,34 @@ struct ProjectSource {
 struct ProjectArtefact {
     id: String,
     title: String,
+    summary: Option<String>,
     artefact_type: String,
+    body_markdown: String,
+    model: Option<String>,
+    provider: Option<String>,
     created_at: String,
     updated_at: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArtefactDraft {
+    project_id: String,
+    artefact_type: String,
+    title: String,
+    summary: Option<String>,
+    body_markdown: String,
+    model: Option<String>,
+    provider: Option<String>,
+    context: Vec<SelectedContextItem>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SelectedContextItem {
+    item_type: String,
+    item_id: String,
+    title: String,
 }
 
 #[derive(Serialize)]
@@ -797,6 +852,15 @@ fn call_provider_for_extraction(
     })
 }
 
+fn call_provider_for_markdown(settings: &ProviderSettings, prompt: &str) -> Result<String, String> {
+    validate_provider_settings(settings)?;
+    if settings.provider_type == "ollama" {
+        call_ollama_markdown(settings, prompt)
+    } else {
+        call_openai_compatible_markdown(settings, prompt)
+    }
+}
+
 fn call_openai_compatible_chat(
     settings: &ProviderSettings,
     prompt: &str,
@@ -841,6 +905,50 @@ fn call_openai_compatible_chat(
         .ok_or_else(|| "provider response did not include message content".to_string())
 }
 
+fn call_openai_compatible_markdown(
+    settings: &ProviderSettings,
+    prompt: &str,
+) -> Result<String, String> {
+    let api_key = settings
+        .api_key
+        .as_ref()
+        .ok_or_else(|| "API key is required for this provider".to_string())?;
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {api_key}"))
+            .map_err(|error| format!("provider API key could not be used: {error}"))?,
+    );
+
+    let response: Value = Client::new()
+        .post(format!("{}/chat/completions", provider_base_url(settings)))
+        .headers(headers)
+        .json(&json!({
+            "model": settings.chat_model,
+            "temperature": 0.2,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You generate concise developer artefacts in Markdown. Stay grounded in the provided local context and do not invent project facts."
+                },
+                { "role": "user", "content": prompt }
+            ]
+        }))
+        .send()
+        .map_err(|error| format!("provider request failed: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("provider returned an error: {error}"))?
+        .json()
+        .map_err(|error| format!("provider response was not JSON: {error}"))?;
+
+    response["choices"][0]["message"]["content"]
+        .as_str()
+        .map(|content| content.trim().to_string())
+        .filter(|content| !content.is_empty())
+        .ok_or_else(|| "provider response did not include markdown content".to_string())
+}
+
 fn call_ollama_chat(settings: &ProviderSettings, prompt: &str) -> Result<String, String> {
     let response: Value = Client::new()
         .post(format!("{}/api/chat", provider_base_url(settings)))
@@ -867,6 +975,34 @@ fn call_ollama_chat(settings: &ProviderSettings, prompt: &str) -> Result<String,
         .as_str()
         .map(|content| content.to_string())
         .ok_or_else(|| "Ollama response did not include message content".to_string())
+}
+
+fn call_ollama_markdown(settings: &ProviderSettings, prompt: &str) -> Result<String, String> {
+    let response: Value = Client::new()
+        .post(format!("{}/api/chat", provider_base_url(settings)))
+        .json(&json!({
+            "model": settings.chat_model,
+            "stream": false,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You generate concise developer artefacts in Markdown. Stay grounded in the provided local context and do not invent project facts."
+                },
+                { "role": "user", "content": prompt }
+            ]
+        }))
+        .send()
+        .map_err(|error| format!("Ollama request failed: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("Ollama returned an error: {error}"))?
+        .json()
+        .map_err(|error| format!("Ollama response was not JSON: {error}"))?;
+
+    response["message"]["content"]
+        .as_str()
+        .map(|content| content.trim().to_string())
+        .filter(|content| !content.is_empty())
+        .ok_or_else(|| "Ollama response did not include markdown content".to_string())
 }
 
 fn parse_extraction_json(content: &str) -> Result<ExtractionResult, String> {
@@ -1143,6 +1279,130 @@ fn get_project_memory(
     id: String,
 ) -> Result<ProjectMemory, String> {
     with_database(&state, |connection| load_project_memory(connection, &id))
+}
+
+#[tauri::command]
+fn generate_artefact(
+    state: tauri::State<'_, AppState>,
+    input: ArtefactContextSelection,
+) -> Result<ArtefactDraft, String> {
+    validate_artefact_type(&input.artefact_type)?;
+    let (settings, prompt, context) = with_database(&state, |connection| {
+        let settings = load_provider_settings(connection)?;
+        let (prompt, context) = build_artefact_prompt(connection, &input)?;
+        Ok((settings, prompt, context))
+    })?;
+
+    let body_markdown = call_provider_for_markdown(&settings, &prompt)?;
+    let title = markdown_title(&body_markdown)
+        .unwrap_or_else(|| artefact_type_label(&input.artefact_type).to_string());
+    let summary = body_markdown
+        .lines()
+        .find(|line| {
+            let trimmed = line.trim();
+            !trimmed.is_empty() && !trimmed.starts_with('#')
+        })
+        .map(|line| line.trim().trim_start_matches("- ").to_string());
+
+    Ok(ArtefactDraft {
+        project_id: input.project_id,
+        artefact_type: input.artefact_type,
+        title,
+        summary,
+        body_markdown,
+        provider: Some(settings.provider_type),
+        model: Some(settings.chat_model),
+        context,
+    })
+}
+
+#[tauri::command]
+fn save_artefact(
+    state: tauri::State<'_, AppState>,
+    input: SaveArtefactInput,
+) -> Result<ProjectArtefact, String> {
+    validate_artefact_type(&input.artefact_type)?;
+    let title = input.title.trim().to_string();
+    let body_markdown = input.body_markdown.trim().to_string();
+    if title.is_empty() || body_markdown.is_empty() {
+        return Err("artefact title and markdown body are required".to_string());
+    }
+
+    let id = make_id("artefact");
+    with_database_mut(&state, |connection| {
+        let transaction = connection
+            .transaction()
+            .map_err(|error| format!("could not start artefact save transaction: {error}"))?;
+        let metadata_json = serde_json::to_string(&json!({
+            "context": input.context,
+        }))
+        .map_err(|error| format!("could not serialize artefact metadata: {error}"))?;
+
+        transaction
+            .execute(
+                "INSERT INTO artefacts (
+                   id, project_id, title, artefact_type, summary, body_markdown,
+                   markdown_body, model, provider, metadata_json
+                 )
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?8, ?9)",
+                params![
+                    id,
+                    input.project_id,
+                    title,
+                    input.artefact_type,
+                    normalize_optional_text(input.summary),
+                    body_markdown,
+                    normalize_optional_text(input.model),
+                    normalize_optional_text(input.provider),
+                    metadata_json
+                ],
+            )
+            .map_err(|error| format!("could not save artefact: {error}"))?;
+
+        insert_relationship(
+            &transaction,
+            "project",
+            &input.project_id,
+            "artefact",
+            &id,
+            "contains",
+        )?;
+        for item in input.context {
+            insert_relationship(
+                &transaction,
+                &item.item_type,
+                &item.item_id,
+                "artefact",
+                &id,
+                "used_for",
+            )?;
+        }
+
+        transaction
+            .commit()
+            .map_err(|error| format!("could not commit artefact save: {error}"))?;
+
+        get_project_artefact(connection, &id)
+    })
+}
+
+#[tauri::command]
+fn list_artefacts(
+    state: tauri::State<'_, AppState>,
+    project_id: Option<String>,
+) -> Result<Vec<ProjectArtefact>, String> {
+    with_database(&state, |connection| {
+        if let Some(project_id) = project_id {
+            load_project_artefacts(connection, &project_id)
+        } else {
+            load_all_artefacts(connection)
+        }
+    })
+}
+
+#[tauri::command]
+fn get_artefact(state: tauri::State<'_, AppState>, id: String) -> Result<ProjectArtefact, String> {
+    with_database(&state, |connection| get_project_artefact(connection, &id))
 }
 
 #[tauri::command]
@@ -1925,7 +2185,15 @@ fn load_project_artefacts(
 ) -> Result<Vec<ProjectArtefact>, String> {
     let mut statement = connection
         .prepare(
-            "SELECT id, title, artefact_type, created_at, updated_at
+            "SELECT id,
+                    title,
+                    summary,
+                    artefact_type,
+                    COALESCE(NULLIF(body_markdown, ''), markdown_body) AS body_markdown,
+                    model,
+                    provider,
+                    created_at,
+                    updated_at
              FROM artefacts
              WHERE project_id = ?1
              ORDER BY datetime(updated_at) DESC, id DESC",
@@ -1937,7 +2205,11 @@ fn load_project_artefacts(
             Ok(ProjectArtefact {
                 id: row.get("id")?,
                 title: row.get("title")?,
+                summary: row.get("summary")?,
                 artefact_type: row.get("artefact_type")?,
+                body_markdown: row.get("body_markdown")?,
+                model: row.get("model")?,
+                provider: row.get("provider")?,
                 created_at: row.get("created_at")?,
                 updated_at: row.get("updated_at")?,
             })
@@ -1947,6 +2219,259 @@ fn load_project_artefacts(
         .map_err(|error| format!("could not read project artefacts: {error}"))?;
 
     Ok(rows)
+}
+
+fn load_all_artefacts(connection: &Connection) -> Result<Vec<ProjectArtefact>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id,
+                    title,
+                    summary,
+                    artefact_type,
+                    COALESCE(NULLIF(body_markdown, ''), markdown_body) AS body_markdown,
+                    model,
+                    provider,
+                    created_at,
+                    updated_at
+             FROM artefacts
+             ORDER BY datetime(updated_at) DESC, id DESC",
+        )
+        .map_err(|error| format!("could not prepare artefact query: {error}"))?;
+
+    let rows = statement
+        .query_map([], project_artefact_from_row)
+        .map_err(|error| format!("could not query artefacts: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("could not read artefacts: {error}"))?;
+
+    Ok(rows)
+}
+
+fn get_project_artefact(connection: &Connection, id: &str) -> Result<ProjectArtefact, String> {
+    connection
+        .query_row(
+            "SELECT id,
+                    title,
+                    summary,
+                    artefact_type,
+                    COALESCE(NULLIF(body_markdown, ''), markdown_body) AS body_markdown,
+                    model,
+                    provider,
+                    created_at,
+                    updated_at
+             FROM artefacts
+             WHERE id = ?1",
+            [id],
+            project_artefact_from_row,
+        )
+        .map_err(|error| format!("could not load artefact: {error}"))
+}
+
+fn project_artefact_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectArtefact> {
+    Ok(ProjectArtefact {
+        id: row.get("id")?,
+        title: row.get("title")?,
+        summary: row.get("summary")?,
+        artefact_type: row.get("artefact_type")?,
+        body_markdown: row.get("body_markdown")?,
+        model: row.get("model")?,
+        provider: row.get("provider")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+fn validate_artefact_type(artefact_type: &str) -> Result<(), String> {
+    if matches!(
+        artefact_type,
+        "product_brief"
+            | "implementation_plan"
+            | "adr"
+            | "coding_agent_prompt"
+            | "linkedin_blog_draft"
+    ) {
+        Ok(())
+    } else {
+        Err("unsupported artefact type".to_string())
+    }
+}
+
+fn artefact_type_label(artefact_type: &str) -> &'static str {
+    match artefact_type {
+        "product_brief" => "Product brief",
+        "implementation_plan" => "Implementation plan",
+        "adr" => "Architecture decision record",
+        "coding_agent_prompt" => "Coding-agent prompt",
+        "linkedin_blog_draft" => "LinkedIn or blog draft",
+        _ => "Artefact",
+    }
+}
+
+fn markdown_title(markdown: &str) -> Option<String> {
+    markdown.lines().find_map(|line| {
+        let trimmed = line.trim();
+        trimmed
+            .strip_prefix("# ")
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .map(ToString::to_string)
+    })
+}
+
+fn build_artefact_prompt(
+    connection: &Connection,
+    input: &ArtefactContextSelection,
+) -> Result<(String, Vec<SelectedContextItem>), String> {
+    let project = get_project(connection, &input.project_id)?;
+    let mut sections = Vec::new();
+    let mut context = Vec::new();
+
+    if input.include_project_memory {
+        sections.push(format!(
+            "## Project memory\nName: {}\nDescription: {}\nCurrent direction:\n{}\nOverview:\n{}",
+            project.name,
+            project.description.as_deref().unwrap_or(""),
+            project.current_direction,
+            project.overview
+        ));
+        context.push(SelectedContextItem {
+            item_type: "project".to_string(),
+            item_id: project.id.clone(),
+            title: project.name.clone(),
+        });
+    }
+
+    collect_context_rows(
+        connection,
+        "capture",
+        "SELECT id, COALESCE(title, 'Untitled capture') AS title,
+                COALESCE(summary, raw_text) AS body
+         FROM captures
+         WHERE project_id = ?1",
+        &input.project_id,
+        &input.capture_ids,
+        &mut sections,
+        &mut context,
+    )?;
+    collect_context_rows(
+        connection,
+        "decision",
+        "SELECT id, title, decision AS body
+         FROM decisions
+         WHERE project_id = ?1",
+        &input.project_id,
+        &input.decision_ids,
+        &mut sections,
+        &mut context,
+    )?;
+    collect_context_rows(
+        connection,
+        "task",
+        "SELECT id, title, COALESCE(description, status) AS body
+         FROM tasks
+         WHERE project_id = ?1",
+        &input.project_id,
+        &input.task_ids,
+        &mut sections,
+        &mut context,
+    )?;
+    collect_context_rows(
+        connection,
+        "question",
+        "SELECT id, question AS title, COALESCE(answer, status) AS body
+         FROM questions
+         WHERE project_id = ?1",
+        &input.project_id,
+        &input.question_ids,
+        &mut sections,
+        &mut context,
+    )?;
+    collect_context_rows(
+        connection,
+        "source",
+        "SELECT id, title, COALESCE(notes, raw_excerpt, url, '') AS body
+         FROM sources
+         WHERE project_id = ?1",
+        &input.project_id,
+        &input.source_ids,
+        &mut sections,
+        &mut context,
+    )?;
+
+    if sections.is_empty() {
+        return Err("select at least one project context item".to_string());
+    }
+
+    let instructions = artefact_instructions(&input.artefact_type);
+    let prompt = format!(
+        "Generate a {} in Markdown.\n\n{}\n\nRules:\n- Use only the selected local context below.\n- Do not invent facts, dates, metrics, integrations, or commitments.\n- Prefer concise, copy-pasteable output.\n\nSelected context:\n{}",
+        artefact_type_label(&input.artefact_type),
+        instructions,
+        sections.join("\n\n")
+    );
+
+    Ok((prompt, context))
+}
+
+fn collect_context_rows(
+    connection: &Connection,
+    item_type: &str,
+    base_sql: &str,
+    project_id: &str,
+    selected_ids: &[String],
+    sections: &mut Vec<String>,
+    context: &mut Vec<SelectedContextItem>,
+) -> Result<(), String> {
+    if selected_ids.is_empty() {
+        return Ok(());
+    }
+
+    for item_id in selected_ids {
+        let row = connection
+            .query_row(
+                &format!("{base_sql} AND id = ?2"),
+                params![project_id, item_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>("id")?,
+                        row.get::<_, String>("title")?,
+                        row.get::<_, String>("body")?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|error| format!("could not load selected {item_type}: {error}"))?;
+
+        if let Some((id, title, body)) = row {
+            sections.push(format!("## {item_type}: {title}\n{body}"));
+            context.push(SelectedContextItem {
+                item_type: item_type.to_string(),
+                item_id: id,
+                title,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn artefact_instructions(artefact_type: &str) -> &'static str {
+    match artefact_type {
+        "product_brief" => {
+            "Use sections: Problem, Audience, Product direction, Core workflow, Scope, Open questions."
+        }
+        "implementation_plan" => {
+            "Use sections: Goal, Assumptions, Phases, Data model, UI work, Backend work, Acceptance criteria, Out of scope."
+        }
+        "adr" => "Use ADR sections: Status, Context, Decision, Consequences.",
+        "coding_agent_prompt" => {
+            "Write a copy-pasteable coding-agent prompt with sections: Task, Context, Requirements, Out of scope, Acceptance criteria."
+        }
+        "linkedin_blog_draft" => {
+            "Write a practical LinkedIn or blog draft. Avoid buzzwords. Include a working title and a concise body."
+        }
+        _ => "",
+    }
 }
 
 fn load_capture_distillation(
@@ -2456,6 +2981,10 @@ pub fn run() {
             create_project,
             update_project,
             get_project_memory,
+            generate_artefact,
+            save_artefact,
+            list_artefacts,
+            get_artefact,
             update_capture_status,
             update_capture_project,
             accept_suggested_project,
@@ -2493,7 +3022,7 @@ mod tests {
         assert!(database.database_path.exists());
         assert_eq!(
             database.latest_migration.as_deref(),
-            Some("0003_project_memory")
+            Some("0004_artefact_generation")
         );
 
         let table_count: i64 = database
@@ -2549,5 +3078,17 @@ mod tests {
             .expect("project memory columns are queryable");
 
         assert_eq!(has_project_memory_columns, 3);
+
+        let has_artefact_columns: i64 = database
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('artefacts')
+                 WHERE name IN ('summary', 'body_markdown', 'model', 'provider')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("artefact generation columns are queryable");
+
+        assert_eq!(has_artefact_columns, 4);
     }
 }

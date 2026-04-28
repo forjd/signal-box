@@ -35,15 +35,18 @@ import {
   createCapture,
   createProject,
   createSource,
+  generateArtefact,
   getCaptureDistillation,
   getAppMetadata,
   getDatabaseHealth,
   getProjectMemory,
   getProviderSettings,
+  listArtefacts,
   listCaptures,
   listProjectRecords,
   listProjects,
   processCapture,
+  saveArtefact,
   saveProviderSettings,
   showQuickCapture,
   testProviderSettings,
@@ -55,6 +58,9 @@ import {
   updateSource,
   updateTask,
   type AppMetadata,
+  type ArtefactContextSelection,
+  type ArtefactDraft,
+  type ArtefactType,
   type Capture,
   type CaptureDistillation,
   type CaptureStatus,
@@ -76,6 +82,7 @@ import {
   type ProjectSource,
   type ProjectTask,
   type SaveDecisionInput,
+  type SaveArtefactInput,
   type SaveProjectInput,
   type SaveQuestionInput,
   type SaveSourceInput,
@@ -162,6 +169,14 @@ const providerTypeLabels: Record<ProviderType, string> = {
   openai: "OpenAI",
   openrouter: "OpenRouter",
   ollama: "Ollama",
+};
+
+const artefactTypeLabels: Record<ArtefactType, string> = {
+  product_brief: "Product brief",
+  implementation_plan: "Implementation plan",
+  adr: "ADR",
+  coding_agent_prompt: "Coding-agent prompt",
+  linkedin_blog_draft: "LinkedIn/blog draft",
 };
 
 function App() {
@@ -385,6 +400,13 @@ function MainWindow() {
             onSelectProject={setSelectedProjectId}
           />
         )}
+        {activeRoute === "artefacts" && (
+          <ArtefactsView
+            projects={projectRecords}
+            selectedProjectId={selectedProjectId}
+            onSelectProject={setSelectedProjectId}
+          />
+        )}
         {activeRoute === "inbox" && (
           <InboxView
             captures={captures}
@@ -403,7 +425,8 @@ function MainWindow() {
         {activeRoute !== "settings" &&
           activeRoute !== "inbox" &&
           activeRoute !== "projects" &&
-          activeRoute !== "memory" && (
+          activeRoute !== "memory" &&
+          activeRoute !== "artefacts" && (
             <EmptyState title={currentRoute.title} body={currentRoute.body} />
           )}
       </section>
@@ -1677,11 +1700,436 @@ function ArtefactList({ items }: { items: ProjectArtefact[] }) {
         <article className="object-item" key={item.id}>
           <strong>{item.title}</strong>
           <Badge variant="outline">{item.artefactType}</Badge>
+          {item.summary && <p>{item.summary}</p>}
           <small>Updated {formatAge(item.updatedAt)}</small>
         </article>
       ))}
     </StructuredList>
   );
+}
+
+function ArtefactsView({
+  projects,
+  selectedProjectId,
+  onSelectProject,
+}: {
+  projects: LoadState<ProjectRecord[]>;
+  selectedProjectId: string | null;
+  onSelectProject: (id: string) => void;
+}) {
+  const [memory, setMemory] = useState<LoadState<ProjectMemory>>({ status: "loading" });
+  const [artefacts, setArtefacts] = useState<LoadState<ProjectArtefact[]>>({ status: "loading" });
+  const [selectedArtefactId, setSelectedArtefactId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<ArtefactDraft | null>(null);
+  const [selection, setSelection] = useState<ArtefactContextSelection | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const projectOptions = projects.status === "ready" ? projects.data : [];
+  const activeProjectId = selectedProjectId ?? projectOptions[0]?.id ?? null;
+
+  const loadArtefactState = useCallback(async () => {
+    if (!activeProjectId) {
+      setMemory({ status: "ready", data: emptyProjectMemory() });
+      setArtefacts({ status: "ready", data: [] });
+      return;
+    }
+
+    setMemory({ status: "loading" });
+    setArtefacts({ status: "loading" });
+    try {
+      const [loadedMemory, loadedArtefacts] = await Promise.all([
+        getProjectMemory(activeProjectId),
+        listArtefacts(activeProjectId),
+      ]);
+      setMemory({ status: "ready", data: loadedMemory });
+      setArtefacts({ status: "ready", data: loadedArtefacts });
+      setSelection((current) => current ?? defaultArtefactSelection(activeProjectId));
+      setSelectedArtefactId((current) => current ?? loadedArtefacts[0]?.id ?? null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setMemory({ status: "error", message });
+      setArtefacts({ status: "error", message });
+    }
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    loadArtefactState();
+  }, [loadArtefactState]);
+
+  useEffect(() => {
+    if (activeProjectId) {
+      setSelection(defaultArtefactSelection(activeProjectId));
+      setDraft(null);
+    }
+  }, [activeProjectId]);
+
+  if (
+    projects.status === "loading" ||
+    memory.status === "loading" ||
+    artefacts.status === "loading"
+  ) {
+    return <LoadingState label="Loading artefact generator" />;
+  }
+
+  if (projects.status === "error") {
+    return <ErrorState title="Projects unavailable" message={projects.message} />;
+  }
+
+  if (memory.status === "error") {
+    return <ErrorState title="Project context unavailable" message={memory.message} />;
+  }
+
+  if (artefacts.status === "error") {
+    return <ErrorState title="Artefacts unavailable" message={artefacts.message} />;
+  }
+
+  if (!activeProjectId || memory.data.project.id === "") {
+    return (
+      <EmptyState
+        title="No project selected"
+        body="Create a project before generating artefacts."
+      />
+    );
+  }
+
+  const activeSelection = selection ?? defaultArtefactSelection(activeProjectId);
+  const selectedArtefact =
+    artefacts.data.find((artefact) => artefact.id === selectedArtefactId) ?? artefacts.data[0];
+
+  async function generate() {
+    setGenerating(true);
+    try {
+      const generated = await generateArtefact(activeSelection);
+      setDraft(generated);
+      toast.success("Artefact generated");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function saveDraft() {
+    if (!draft) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const input: SaveArtefactInput = draft;
+      const saved = await saveArtefact(input);
+      toast.success("Artefact saved");
+      setSelectedArtefactId(saved.id);
+      setDraft(null);
+      await loadArtefactState();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="artefact-workspace">
+      <section className="artefact-generator">
+        <div className="list-toolbar">
+          <div>
+            <p className="eyebrow">Generate</p>
+            <h2>{memory.data.project.name}</h2>
+          </div>
+          <ProjectRecordSelect
+            projects={projectOptions}
+            value={activeProjectId}
+            onChange={onSelectProject}
+          />
+        </div>
+
+        <div className="artefact-controls">
+          <div className="form-field">
+            <span>Type</span>
+            <Select
+              value={activeSelection.artefactType}
+              onValueChange={(value) =>
+                setSelection({ ...activeSelection, artefactType: value as ArtefactType })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(artefactTypeLabels).map(([type, label]) => (
+                  <SelectItem key={type} value={type}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <label className="context-toggle">
+            <input
+              type="checkbox"
+              checked={activeSelection.includeProjectMemory}
+              onChange={(event) =>
+                setSelection({
+                  ...activeSelection,
+                  includeProjectMemory: event.target.checked,
+                })
+              }
+            />
+            Project memory
+          </label>
+        </div>
+
+        <ContextSelector memory={memory.data} selection={activeSelection} onChange={setSelection} />
+
+        <div className="provider-actions">
+          <Button type="button" onClick={generate} disabled={generating}>
+            <Sparkles aria-hidden="true" />
+            {generating ? "Generating" : "Generate"}
+          </Button>
+          <Button type="button" variant="outline" onClick={() => setDraft(null)} disabled={!draft}>
+            Clear preview
+          </Button>
+        </div>
+
+        {draft && (
+          <section className="markdown-preview" aria-label="Generated artefact preview">
+            <div className="distillation-header">
+              <div>
+                <p className="eyebrow">Preview</p>
+                <h3>{draft.title}</h3>
+              </div>
+              <div className="provider-actions">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => copyMarkdown(draft.bodyMarkdown)}
+                >
+                  Copy
+                </Button>
+                <Button type="button" onClick={saveDraft} disabled={saving}>
+                  <Save aria-hidden="true" />
+                  Save
+                </Button>
+              </div>
+            </div>
+            <MarkdownBlock markdown={draft.bodyMarkdown} />
+          </section>
+        )}
+      </section>
+
+      <section className="artefact-library">
+        <div className="list-toolbar">
+          <div>
+            <p className="eyebrow">Saved</p>
+            <h2>{artefacts.data.length} artefacts</h2>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={loadArtefactState}>
+            <RefreshCw aria-hidden="true" />
+            Refresh
+          </Button>
+        </div>
+        <div className="artefact-library-body">
+          <div className="project-list">
+            {artefacts.data.map((artefact) => (
+              <button
+                className="project-row"
+                data-active={artefact.id === selectedArtefact?.id}
+                key={artefact.id}
+                onClick={() => setSelectedArtefactId(artefact.id)}
+                type="button"
+              >
+                <strong>{artefact.title}</strong>
+                <span>{artefactTypeLabels[artefact.artefactType as ArtefactType]}</span>
+                <small>{formatAge(artefact.updatedAt)}</small>
+              </button>
+            ))}
+            {artefacts.data.length === 0 && (
+              <p className="muted-copy">No saved artefacts for this project.</p>
+            )}
+          </div>
+          {selectedArtefact && (
+            <article className="saved-artefact">
+              <div className="distillation-header">
+                <div>
+                  <p className="eyebrow">{selectedArtefact.provider ?? "Saved"}</p>
+                  <h3>{selectedArtefact.title}</h3>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => copyMarkdown(selectedArtefact.bodyMarkdown)}
+                >
+                  Copy
+                </Button>
+              </div>
+              <MarkdownBlock markdown={selectedArtefact.bodyMarkdown} />
+            </article>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function defaultArtefactSelection(projectId: string): ArtefactContextSelection {
+  return {
+    projectId,
+    artefactType: "implementation_plan",
+    includeProjectMemory: true,
+    captureIds: [],
+    decisionIds: [],
+    taskIds: [],
+    questionIds: [],
+    sourceIds: [],
+  };
+}
+
+function ProjectRecordSelect({
+  projects,
+  value,
+  onChange,
+}: {
+  projects: ProjectRecord[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Select
+      value={packProjectId(value)}
+      onValueChange={(next) => onChange(unpackProjectId(next) ?? value)}
+    >
+      <SelectTrigger>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {projects.map((project) => (
+          <SelectItem key={project.id} value={packProjectId(project.id)}>
+            {project.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function ContextSelector({
+  memory,
+  selection,
+  onChange,
+}: {
+  memory: ProjectMemory;
+  selection: ArtefactContextSelection;
+  onChange: (selection: ArtefactContextSelection) => void;
+}) {
+  return (
+    <div className="context-selector">
+      <ContextGroup
+        title="Captures"
+        ids={selection.captureIds}
+        items={memory.captures.map((capture) => ({
+          id: capture.id,
+          title: capture.title || fallbackTitle(capture.rawText),
+        }))}
+        onChange={(captureIds) => onChange({ ...selection, captureIds })}
+      />
+      <ContextGroup
+        title="Decisions"
+        ids={selection.decisionIds}
+        items={memory.decisions.map((decision) => ({ id: decision.id, title: decision.title }))}
+        onChange={(decisionIds) => onChange({ ...selection, decisionIds })}
+      />
+      <ContextGroup
+        title="Tasks"
+        ids={selection.taskIds}
+        items={memory.tasks.map((task) => ({ id: task.id, title: task.title }))}
+        onChange={(taskIds) => onChange({ ...selection, taskIds })}
+      />
+      <ContextGroup
+        title="Questions"
+        ids={selection.questionIds}
+        items={memory.questions.map((question) => ({ id: question.id, title: question.question }))}
+        onChange={(questionIds) => onChange({ ...selection, questionIds })}
+      />
+      <ContextGroup
+        title="Sources"
+        ids={selection.sourceIds}
+        items={memory.sources.map((source) => ({ id: source.id, title: source.title }))}
+        onChange={(sourceIds) => onChange({ ...selection, sourceIds })}
+      />
+    </div>
+  );
+}
+
+function ContextGroup({
+  title,
+  items,
+  ids,
+  onChange,
+}: {
+  title: string;
+  items: Array<{ id: string; title: string }>;
+  ids: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  return (
+    <section className="context-group">
+      <div className="distillation-header">
+        <h4>{title}</h4>
+        <Badge variant="outline">{ids.length}</Badge>
+      </div>
+      {items.length === 0 ? (
+        <p className="muted-copy">None</p>
+      ) : (
+        items.map((item) => (
+          <label className="context-option" key={item.id}>
+            <input
+              type="checkbox"
+              checked={ids.includes(item.id)}
+              onChange={(event) => {
+                onChange(
+                  event.target.checked
+                    ? [...ids, item.id]
+                    : ids.filter((existing) => existing !== item.id),
+                );
+              }}
+            />
+            <span>{item.title}</span>
+          </label>
+        ))
+      )}
+    </section>
+  );
+}
+
+function MarkdownBlock({ markdown }: { markdown: string }) {
+  return (
+    <div className="markdown-body">
+      {markdown.split("\n").map((line, index) => {
+        if (line.startsWith("# ")) {
+          return <h2 key={index}>{line.replace(/^# /, "")}</h2>;
+        }
+        if (line.startsWith("## ")) {
+          return <h3 key={index}>{line.replace(/^## /, "")}</h3>;
+        }
+        if (line.startsWith("- ")) {
+          return <p key={index}>• {line.replace(/^- /, "")}</p>;
+        }
+        return line.trim() ? <p key={index}>{line}</p> : <br key={index} />;
+      })}
+    </div>
+  );
+}
+
+async function copyMarkdown(markdown: string) {
+  try {
+    await navigator.clipboard.writeText(markdown);
+    toast.success("Markdown copied");
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : String(error));
+  }
 }
 
 function StructuredList({ children, empty }: { children: ReactNode; empty: string }) {

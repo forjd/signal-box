@@ -673,6 +673,113 @@ h2 {
   gap: 10px;
 }
 
+.artefact-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 18px;
+}
+
+.artefact-generator,
+.artefact-library {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #d7ddd6;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.artefact-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+  gap: 14px;
+  border-bottom: 1px solid #e2e6e1;
+  padding: 16px;
+}
+
+.context-toggle,
+.context-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #3a3f45;
+  font-size: 0.9rem;
+}
+
+.context-toggle {
+  align-self: end;
+  min-height: 40px;
+}
+
+.context-selector {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  border-bottom: 1px solid #e2e6e1;
+  padding: 16px;
+}
+
+.context-group {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  border: 1px solid #d7ddd6;
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 12px;
+}
+
+.context-group h4 {
+  margin: 0;
+  color: #20252b;
+}
+
+.context-option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markdown-preview,
+.saved-artefact {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid #e2e6e1;
+  padding: 16px;
+}
+
+.markdown-body {
+  display: grid;
+  gap: 8px;
+  max-height: 520px;
+  overflow: auto;
+  border: 1px solid #d7ddd6;
+  border-radius: 8px;
+  background: #fbfcfa;
+  padding: 16px;
+}
+
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.markdown-body h2 {
+  font-size: 1.35rem;
+}
+
+.markdown-body h3 {
+  margin-top: 8px;
+  font-size: 1rem;
+}
+
+.artefact-library-body {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  gap: 0;
+}
+
 .provider-card {
   grid-column: 1 / -1;
 }
@@ -775,6 +882,10 @@ h2 {
   }
 
   .distillation-grid,
+  .artefact-controls,
+  .artefact-library-body,
+  .artefact-workspace,
+  .context-selector,
   .project-form,
   .project-memory-layout,
   .settings-form-grid {
