@@ -28,6 +28,8 @@ Read these before making product or architecture decisions:
 - React
 - TypeScript
 - Vite
+- Tailwind CSS
+- shadcn/ui with Radix primitives
 - Rust for the Tauri backend
 
 Likely planned additions:
@@ -87,6 +89,18 @@ Run the full local validation suite:
 bun run check
 ```
 
+Inspect shadcn configuration:
+
+```bash
+bun run ui:info
+```
+
+Add shadcn components:
+
+```bash
+bun run ui:add <component>
+```
+
 ## Implementation Guidance
 
 - Keep changes scoped and aligned with the alpha scope in `docs/scope.md`.
@@ -95,6 +109,9 @@ bun run check
 - When auditing implementation against a plan, use the repo-local skill at `.codex/skills/audit-signal-box-plan`.
 - Use Oxfmt and Oxlint through the package scripts for frontend formatting and linting. Do not add Prettier, ESLint, or Biome unless there is a specific reason to change the toolchain.
 - Use `cargo fmt` and `cargo clippy` through the package scripts for Rust/Tauri formatting and linting.
+- Use the UI foundation in `docs/ui.md` for frontend work.
+- Prefer shadcn-managed primitives in `src/components/ui/` before adding custom styled controls.
+- Keep shared Signal Box UI patterns in `src/components/common/`; keep feature-specific components near the feature.
 - Prefer simple, explicit data models over markdown-only storage.
 - Do not introduce sync, team features, mobile support, passive OS-wide capture, complex markdown editing, graph views, or plugin systems unless explicitly requested.
 - When adding AI features, keep provider-specific code behind a small abstraction.

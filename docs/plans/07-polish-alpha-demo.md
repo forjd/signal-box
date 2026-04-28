@@ -5,7 +5,7 @@ type: phase
 phase: 7
 status: planned
 created: 2026-04-28T19:06:10Z
-updated: 2026-04-28T19:12:00Z
+updated: 2026-04-28T19:36:26Z
 verified_at: null
 verified_by: null
 related_scope: docs/scope.md
@@ -26,6 +26,7 @@ Make the alpha feel coherent, credible, and demoable end to end.
 - Keyboard shortcuts.
 - Navigation polish.
 - Copy and export polish.
+- UI component consistency pass.
 - Demo data or seed flow if useful.
 - Alpha acceptance test pass.
 - Final demo script.
@@ -51,6 +52,7 @@ Only small migration fixes should happen here. Avoid broad schema redesign unles
 - Consistent status messaging for processing, indexing, generation, and search.
 - Keyboard shortcut hints where useful.
 - Visual pass for spacing, typography, and app hierarchy.
+- Verify alpha screens use the shared component foundation instead of one-off controls.
 
 ## Backend/Tauri Work
 

@@ -5,7 +5,7 @@ type: phase
 phase: 6
 status: planned
 created: 2026-04-28T19:06:10Z
-updated: 2026-04-28T19:12:00Z
+updated: 2026-04-28T19:36:26Z
 verified_at: null
 verified_by: null
 related_scope: docs/scope.md
@@ -69,6 +69,7 @@ Embeddings should be linked to local entities such as:
 - Ask answer panel.
 - Link results back to source captures and project memory.
 - Project recall entry point for "Where did I get to?"
+- Use shared inputs, cards, badges, skeletons, alerts, and navigation patterns for search and recall states.
 
 ## Backend/Tauri Work
 

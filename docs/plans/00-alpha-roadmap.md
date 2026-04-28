@@ -5,7 +5,7 @@ type: roadmap
 phase: 0
 status: planned
 created: 2026-04-28T19:06:10Z
-updated: 2026-04-28T19:12:00Z
+updated: 2026-04-28T19:36:26Z
 verified_at: null
 verified_by: null
 related_scope: docs/scope.md
@@ -31,6 +31,7 @@ The product should help a developer return to a cold project and understand wher
 - Fast raw text capture from a global hotkey.
 - Dedicated quick-capture popover window.
 - SQLite storage with Drizzle.
+- Tailwind CSS and shadcn/ui component foundation.
 - Inbox for unprocessed captures.
 - BYOK AI settings for OpenAI/OpenRouter-compatible APIs and local Ollama.
 - AI distillation into structured objects.
@@ -81,6 +82,8 @@ Foundation
 
 Search can begin after the core schema exists, but it should not replace the structured object model. Artefact generation should wait until captures, projects, and extracted objects have stable relationships.
 
+The shared UI foundation should stay small and source-owned. Use shadcn/ui primitives for common controls and add only the components needed by each phase.
+
 ## Plan Status Lifecycle
 
 Plan frontmatter uses `status` to track where each phase is in the delivery lifecycle:
@@ -109,6 +112,7 @@ verified_by: null
 ## Full Alpha Acceptance Criteria
 
 - User can configure a BYOK provider.
+- App UI uses the shared Tailwind/shadcn component foundation for common controls and states.
 - User can press the global hotkey and enter text in a dedicated popover window.
 - User can save a raw capture locally.
 - User can capture pasted URLs, snippets, terminal output, AI chat excerpts, and GitHub issue text as raw text.

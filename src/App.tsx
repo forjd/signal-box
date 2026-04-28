@@ -1,4 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+
+import { EmptyState, ErrorState, LoadingState } from "@/components/common/state-views";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import {
   getAppMetadata,
   getDatabaseHealth,
@@ -118,15 +124,16 @@ function App() {
 
         <nav className="nav-list">
           {routes.map((route) => (
-            <button
+            <Button
               className="nav-item"
               data-active={route.id === activeRoute}
               key={route.id}
               onClick={() => setActiveRoute(route.id)}
               type="button"
+              variant="ghost"
             >
               {route.label}
-            </button>
+            </Button>
           ))}
         </nav>
 
@@ -154,14 +161,26 @@ function App() {
 
 function DatabasePill({ state }: { state: LoadState<DatabaseHealth> }) {
   if (state.status === "loading") {
-    return <span className="status-pill status-neutral">Checking database</span>;
+    return (
+      <Badge className="status-pill" variant="secondary">
+        Checking database
+      </Badge>
+    );
   }
 
   if (state.status === "error" || !state.data.ok) {
-    return <span className="status-pill status-error">Database attention needed</span>;
+    return (
+      <Badge className="status-pill" variant="destructive">
+        Database attention needed
+      </Badge>
+    );
   }
 
-  return <span className="status-pill status-ok">Database ready</span>;
+  return (
+    <Badge className="status-pill" variant="secondary">
+      Database ready
+    </Badge>
+  );
 }
 
 function MetadataSummary({ state }: { state: LoadState<AppMetadata> }) {
@@ -190,103 +209,77 @@ function SettingsView({
 }) {
   return (
     <div className="settings-grid">
-      <section className="panel" aria-labelledby="database-heading">
-        <h2 id="database-heading">Database</h2>
-        {health.status === "loading" && <LoadingState label="Checking local database" />}
-        {health.status === "error" && (
-          <ErrorState title="Database command failed" message={health.message} />
-        )}
-        {health.status === "ready" &&
-          (health.data.ok ? (
+      <Card aria-labelledby="database-heading">
+        <CardHeader>
+          <CardTitle id="database-heading">Database</CardTitle>
+        </CardHeader>
+        <Separator />
+        <CardContent>
+          {health.status === "loading" && <LoadingState label="Checking local database" />}
+          {health.status === "error" && (
+            <ErrorState title="Database command failed" message={health.message} />
+          )}
+          {health.status === "ready" &&
+            (health.data.ok ? (
+              <dl className="detail-list">
+                <div>
+                  <dt>App data directory</dt>
+                  <dd>{health.data.appDataDir}</dd>
+                </div>
+                <div>
+                  <dt>Database file</dt>
+                  <dd>{health.data.databasePath}</dd>
+                </div>
+                <div>
+                  <dt>Latest migration</dt>
+                  <dd>{health.data.latestMigration ?? "None"}</dd>
+                </div>
+                <div>
+                  <dt>Applied migrations</dt>
+                  <dd>{health.data.appliedMigrations}</dd>
+                </div>
+              </dl>
+            ) : (
+              <ErrorState
+                title="Database startup failed"
+                message={health.data.startupError ?? "Unknown startup error"}
+              />
+            ))}
+        </CardContent>
+      </Card>
+
+      <Card aria-labelledby="app-heading">
+        <CardHeader>
+          <CardTitle id="app-heading">Application</CardTitle>
+        </CardHeader>
+        <Separator />
+        <CardContent>
+          {metadata.status === "loading" && <LoadingState label="Loading application metadata" />}
+          {metadata.status === "error" && (
+            <ErrorState title="Metadata unavailable" message={metadata.message} />
+          )}
+          {metadata.status === "ready" && (
             <dl className="detail-list">
               <div>
-                <dt>App data directory</dt>
-                <dd>{health.data.appDataDir}</dd>
+                <dt>Product</dt>
+                <dd>{metadata.data.productName}</dd>
               </div>
               <div>
-                <dt>Database file</dt>
-                <dd>{health.data.databasePath}</dd>
+                <dt>Package</dt>
+                <dd>{metadata.data.packageName}</dd>
               </div>
               <div>
-                <dt>Latest migration</dt>
-                <dd>{health.data.latestMigration ?? "None"}</dd>
+                <dt>Version</dt>
+                <dd>{metadata.data.version}</dd>
               </div>
               <div>
-                <dt>Applied migrations</dt>
-                <dd>{health.data.appliedMigrations}</dd>
+                <dt>Database filename</dt>
+                <dd>{metadata.data.databaseFileName}</dd>
               </div>
             </dl>
-          ) : (
-            <ErrorState
-              title="Database startup failed"
-              message={health.data.startupError ?? "Unknown startup error"}
-            />
-          ))}
-      </section>
-
-      <section className="panel" aria-labelledby="app-heading">
-        <h2 id="app-heading">Application</h2>
-        {metadata.status === "loading" && <LoadingState label="Loading application metadata" />}
-        {metadata.status === "error" && (
-          <ErrorState title="Metadata unavailable" message={metadata.message} />
-        )}
-        {metadata.status === "ready" && (
-          <dl className="detail-list">
-            <div>
-              <dt>Product</dt>
-              <dd>{metadata.data.productName}</dd>
-            </div>
-            <div>
-              <dt>Package</dt>
-              <dd>{metadata.data.packageName}</dd>
-            </div>
-            <div>
-              <dt>Version</dt>
-              <dd>{metadata.data.version}</dd>
-            </div>
-            <div>
-              <dt>Database filename</dt>
-              <dd>{metadata.data.databaseFileName}</dd>
-            </div>
-          </dl>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function EmptyState({ title, body }: { title: string; body: string }) {
-  return (
-    <section className="empty-state" aria-live="polite">
-      <p className="empty-kicker">Foundation placeholder</p>
-      <h2>{title}</h2>
-      <p>{body}</p>
-    </section>
-  );
-}
-
-function LoadingState({ label }: { label: string }) {
-  return (
-    <div className="loading-state" role="status">
-      <span className="spinner" aria-hidden="true" />
-      <span>{label}</span>
-    </div>
-  );
-}
-
-function ErrorState({
-  title,
-  message,
-  compact = false,
-}: {
-  title: string;
-  message: string;
-  compact?: boolean;
-}) {
-  return (
-    <div className={compact ? "error-state compact" : "error-state"} role="alert">
-      <strong>{title}</strong>
-      <span>{message}</span>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

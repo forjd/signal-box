@@ -5,7 +5,7 @@ type: phase
 phase: 5
 status: planned
 created: 2026-04-28T19:06:10Z
-updated: 2026-04-28T19:12:00Z
+updated: 2026-04-28T19:36:26Z
 verified_at: null
 verified_by: null
 related_scope: docs/scope.md
@@ -80,6 +80,7 @@ Use `relationships` or join tables to link artefacts to:
 - Save action.
 - Copy markdown action.
 - Artefact list and detail view.
+- Use shared cards, tabs, selects, buttons, dialogs, alerts, and loading/error states for generation flows.
 
 ## Backend/Tauri Work
 

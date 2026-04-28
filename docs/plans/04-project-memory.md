@@ -5,7 +5,7 @@ type: phase
 phase: 4
 status: planned
 created: 2026-04-28T19:06:10Z
-updated: 2026-04-28T19:12:00Z
+updated: 2026-04-28T19:36:26Z
 verified_at: null
 verified_by: null
 related_scope: docs/scope.md
@@ -79,7 +79,7 @@ Track object provenance so users can see which capture created a task, decision,
 - Overview editor.
 - Capture attachment controls.
 - Suggested project accept/change flow.
-- Tabbed structured object views.
+- Tabbed structured object views using shared tab primitives.
 - Lightweight edit controls for extracted tasks, decisions, and questions.
 - Source list with manual add/edit.
 - Link source to project, capture, decision, or artefact.

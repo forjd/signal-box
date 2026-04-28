@@ -136,6 +136,8 @@ Likely stack:
 - Tauri
 - React
 - TypeScript
+- Tailwind CSS
+- shadcn/ui with Radix primitives
 - SQLite
 - Drizzle
 - OpenAI/OpenRouter-compatible provider abstraction
@@ -178,6 +180,13 @@ Generate SQLite migrations after changing the Drizzle schema:
 bun run db:generate
 ```
 
+Inspect or add shadcn UI components:
+
+```bash
+bun run ui:info
+bun run ui:add button
+```
+
 ## Local Storage
 
 Signal Box initializes a local SQLite database on desktop app startup. The database is stored in the platform app data directory as `signal-box.sqlite3`, and the Settings screen exposes the resolved path and latest applied migration for troubleshooting.
@@ -189,6 +198,7 @@ The Drizzle schema lives at `src/db/schema.ts`. Generated SQL migrations live in
 Start with:
 
 - [docs/scope.md](docs/scope.md) for product scope, positioning, core workflows, and alpha boundaries.
+- [docs/ui.md](docs/ui.md) for the alpha UI foundation and component guidance.
 - [docs/plans/00-alpha-roadmap.md](docs/plans/00-alpha-roadmap.md) for the alpha roadmap and phase order.
 
 Phase plans:

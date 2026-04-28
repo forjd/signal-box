@@ -5,7 +5,7 @@ type: phase
 phase: 3
 status: planned
 created: 2026-04-28T19:06:10Z
-updated: 2026-04-28T19:12:00Z
+updated: 2026-04-28T19:36:26Z
 verified_at: null
 verified_by: null
 related_scope: docs/scope.md
@@ -75,6 +75,7 @@ Secrets should not be stored in plain text if the platform keychain is practical
 ## UI Work
 
 - Provider settings screen.
+- Use shared inputs, selects, buttons, cards, alerts, skeletons, and status components from the UI foundation.
 - Provider connection test.
 - Capture detail process button.
 - Processing state.

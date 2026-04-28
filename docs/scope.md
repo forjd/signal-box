@@ -588,6 +588,8 @@ Likely app stack:
 Tauri
 React
 TypeScript
+Tailwind CSS
+shadcn/ui with Radix primitives
 SQLite
 Drizzle
 OpenAI/OpenRouter-compatible provider abstraction
@@ -622,6 +624,13 @@ Provider strategy:
 - Support OpenAI-compatible API providers, including OpenAI and OpenRouter.
 - Support local Ollama-compatible models where practical.
 - Keep model/provider-specific code behind a small abstraction so extraction, embeddings, search, and artefact generation do not depend directly on one vendor SDK.
+
+UI strategy:
+
+- Use a small source-owned component system rather than a broad design-system effort.
+- Use Tailwind CSS v4 and shadcn/ui Radix primitives for accessible desktop app controls.
+- Keep Signal Box-specific shared patterns in `src/components/common/`.
+- Keep advanced theming out of alpha; focus on coherent spacing, typography, hierarchy, state handling, and keyboard-friendly workflows.
 
 Search strategy:
 

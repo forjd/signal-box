@@ -5,7 +5,7 @@ type: phase
 phase: 2
 status: planned
 created: 2026-04-28T19:06:10Z
-updated: 2026-04-28T19:12:00Z
+updated: 2026-04-28T19:36:26Z
 verified_at: null
 verified_by: null
 related_scope: docs/scope.md
@@ -75,6 +75,7 @@ Ensure captures can exist without a project assignment.
   - save raw action
   - process now action
   - escape/cancel behavior
+- Use shared shadcn primitives for inputs, textareas, selects, dialogs, buttons, badges, and status/error states.
 - Inbox list:
   - title or generated fallback
   - type guesses placeholder
