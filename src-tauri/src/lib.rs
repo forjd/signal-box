@@ -1,5 +1,8 @@
+use reqwest::blocking::Client;
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -20,6 +23,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         name: "0001_capture_inbox",
         sql: include_str!("../migrations/0001_capture_inbox.sql"),
+    },
+    Migration {
+        name: "0002_ai_provider_distillation",
+        sql: include_str!("../migrations/0002_ai_provider_distillation.sql"),
     },
 ];
 
@@ -87,8 +94,11 @@ struct Capture {
     source_kind: String,
     source: Option<String>,
     status: String,
+    processing_status: String,
+    processing_error: Option<String>,
     project_id: Option<String>,
     suggested_project_id: Option<String>,
+    suggested_project_name: Option<String>,
     created_at: String,
     updated_at: String,
     processed_at: Option<String>,
@@ -121,6 +131,143 @@ struct AppMetadata {
     version: &'static str,
     database_file_name: &'static str,
     quick_capture_hotkey: &'static str,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ProviderSettings {
+    provider_type: String,
+    base_url: Option<String>,
+    api_key: Option<String>,
+    chat_model: String,
+    embedding_model: Option<String>,
+    ollama_base_url: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderSettingsView {
+    provider_type: String,
+    base_url: Option<String>,
+    api_key: String,
+    has_api_key: bool,
+    chat_model: String,
+    embedding_model: Option<String>,
+    ollama_base_url: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderTestResult {
+    ok: bool,
+    message: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DistilledTask {
+    id: String,
+    title: String,
+    description: Option<String>,
+    status: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DistilledDecision {
+    id: String,
+    title: String,
+    context: Option<String>,
+    decision: String,
+    rationale: Option<String>,
+    status: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DistilledQuestion {
+    id: String,
+    question: String,
+    answer: Option<String>,
+    status: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DistilledSource {
+    id: String,
+    title: String,
+    source_type: String,
+    url: Option<String>,
+    raw_reference: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptureDistillation {
+    capture: Capture,
+    tasks: Vec<DistilledTask>,
+    decisions: Vec<DistilledDecision>,
+    questions: Vec<DistilledQuestion>,
+    sources: Vec<DistilledSource>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct ExtractionResult {
+    title: Option<String>,
+    summary: Option<String>,
+    capture_type: Option<String>,
+    suggested_project: Option<String>,
+    insights: Option<Vec<ExtractionInsight>>,
+    tasks: Option<Vec<ExtractionTask>>,
+    decisions: Option<Vec<ExtractionDecision>>,
+    questions: Option<Vec<ExtractionQuestion>>,
+    sources: Option<Vec<ExtractionSource>>,
+    code_snippets_or_prompts: Option<Vec<ExtractionTextItem>>,
+    artefact_suggestions: Option<Vec<ExtractionTextItem>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExtractionInsight {
+    title: Option<String>,
+    summary: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ExtractionTask {
+    title: String,
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ExtractionDecision {
+    title: String,
+    context: Option<String>,
+    decision: String,
+    rationale: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ExtractionQuestion {
+    question: String,
+    answer: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExtractionSource {
+    title: Option<String>,
+    source_type: Option<String>,
+    url: Option<String>,
+    raw_reference: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ExtractionTextItem {
+    title: Option<String>,
+    text: Option<String>,
 }
 
 impl Database {
@@ -248,11 +395,20 @@ fn display_path(path: &Path) -> String {
 }
 
 fn now_id() -> String {
+    make_id("cap")
+}
+
+fn make_id(prefix: &str) -> String {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
 
-    format!("cap_{}_{}", timestamp.as_millis(), timestamp.subsec_nanos())
+    format!(
+        "{}_{}_{}",
+        prefix,
+        timestamp.as_millis(),
+        timestamp.subsec_nanos()
+    )
 }
 
 fn fallback_title(raw_text: &str) -> String {
@@ -275,8 +431,11 @@ fn capture_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Capture> {
         source_kind: row.get("source_kind")?,
         source: row.get("source")?,
         status: row.get("status")?,
+        processing_status: row.get("processing_status")?,
+        processing_error: row.get("processing_error")?,
         project_id: row.get("project_id")?,
         suggested_project_id: row.get("suggested_project_id")?,
+        suggested_project_name: row.get("suggested_project_name")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
         processed_at: row.get("processed_at")?,
@@ -285,7 +444,7 @@ fn capture_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Capture> {
 }
 
 fn with_database<T>(
-    state: tauri::State<'_, AppState>,
+    state: &tauri::State<'_, AppState>,
     action: impl FnOnce(&Connection) -> Result<T, String>,
 ) -> Result<T, String> {
     let database = state
@@ -297,6 +456,309 @@ fn with_database<T>(
         DatabaseState::Ready(database) => action(&database.connection),
         DatabaseState::Failed(error) => Err(error.clone()),
     }
+}
+
+fn with_database_mut<T>(
+    state: &tauri::State<'_, AppState>,
+    action: impl FnOnce(&mut Connection) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut database = state
+        .database
+        .lock()
+        .map_err(|_| "database state lock was poisoned".to_string())?;
+
+    match &mut *database {
+        DatabaseState::Ready(database) => action(&mut database.connection),
+        DatabaseState::Failed(error) => Err(error.clone()),
+    }
+}
+
+fn default_provider_settings() -> ProviderSettings {
+    ProviderSettings {
+        provider_type: "openai".to_string(),
+        base_url: Some("https://api.openai.com/v1".to_string()),
+        api_key: None,
+        chat_model: "gpt-4.1-mini".to_string(),
+        embedding_model: None,
+        ollama_base_url: Some("http://localhost:11434".to_string()),
+    }
+}
+
+fn sanitize_provider_settings(settings: ProviderSettings) -> ProviderSettingsView {
+    ProviderSettingsView {
+        provider_type: settings.provider_type,
+        base_url: settings.base_url,
+        has_api_key: settings
+            .api_key
+            .as_ref()
+            .is_some_and(|api_key| !api_key.trim().is_empty()),
+        api_key: String::new(),
+        chat_model: settings.chat_model,
+        embedding_model: settings.embedding_model,
+        ollama_base_url: settings.ollama_base_url,
+    }
+}
+
+fn load_provider_settings(connection: &Connection) -> Result<ProviderSettings, String> {
+    let saved: Option<String> = connection
+        .query_row(
+            "SELECT value_json FROM settings WHERE key = 'ai.provider'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("could not load provider settings: {error}"))?;
+
+    match saved {
+        Some(value) => serde_json::from_str(&value)
+            .map_err(|error| format!("provider settings are invalid JSON: {error}")),
+        None => Ok(default_provider_settings()),
+    }
+}
+
+fn save_provider_settings_value(
+    connection: &Connection,
+    input: ProviderSettings,
+) -> Result<ProviderSettings, String> {
+    let existing =
+        load_provider_settings(connection).unwrap_or_else(|_| default_provider_settings());
+    let settings = ProviderSettings {
+        provider_type: input.provider_type,
+        base_url: normalize_optional_url(input.base_url),
+        api_key: normalize_secret(input.api_key).or(existing.api_key),
+        chat_model: input.chat_model.trim().to_string(),
+        embedding_model: normalize_optional_text(input.embedding_model),
+        ollama_base_url: normalize_optional_url(input.ollama_base_url),
+    };
+    validate_provider_settings(&settings)?;
+    let value = serde_json::to_string(&settings)
+        .map_err(|error| format!("could not serialize provider settings: {error}"))?;
+
+    connection
+        .execute(
+            "INSERT INTO settings (key, value_json, is_secret, updated_at)
+             VALUES ('ai.provider', ?1, 1, CURRENT_TIMESTAMP)
+             ON CONFLICT(key) DO UPDATE SET
+               value_json = excluded.value_json,
+               is_secret = excluded.is_secret,
+               updated_at = CURRENT_TIMESTAMP",
+            [value],
+        )
+        .map_err(|error| format!("could not save provider settings: {error}"))?;
+
+    Ok(settings)
+}
+
+fn validate_provider_settings(settings: &ProviderSettings) -> Result<(), String> {
+    if !matches!(
+        settings.provider_type.as_str(),
+        "openai" | "openrouter" | "ollama"
+    ) {
+        return Err("provider must be OpenAI, OpenRouter, or Ollama".to_string());
+    }
+
+    if settings.chat_model.trim().is_empty() {
+        return Err("chat model is required".to_string());
+    }
+
+    if settings.provider_type != "ollama"
+        && settings
+            .api_key
+            .as_ref()
+            .is_none_or(|api_key| api_key.trim().is_empty())
+    {
+        return Err("API key is required for OpenAI-compatible providers".to_string());
+    }
+
+    Ok(())
+}
+
+fn normalize_optional_url(value: Option<String>) -> Option<String> {
+    normalize_optional_text(value).map(|url| url.trim_end_matches('/').to_string())
+}
+
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+}
+
+fn normalize_secret(value: Option<String>) -> Option<String> {
+    value
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+}
+
+fn provider_base_url(settings: &ProviderSettings) -> String {
+    match settings.provider_type.as_str() {
+        "openrouter" => settings
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string()),
+        "ollama" => settings
+            .ollama_base_url
+            .clone()
+            .unwrap_or_else(|| "http://localhost:11434".to_string()),
+        _ => settings
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+    }
+}
+
+fn call_provider_for_extraction(
+    settings: &ProviderSettings,
+    capture: &Capture,
+    projects: &[ProjectOption],
+) -> Result<ExtractionResult, String> {
+    validate_provider_settings(settings)?;
+    let content = extraction_prompt(capture, projects);
+    let raw = if settings.provider_type == "ollama" {
+        call_ollama_chat(settings, &content)?
+    } else {
+        call_openai_compatible_chat(settings, &content)?
+    };
+
+    parse_extraction_json(&raw).or_else(|first_error| {
+        let repaired = raw
+            .trim()
+            .trim_start_matches("```json")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim();
+
+        parse_extraction_json(repaired)
+            .map_err(|second_error| format!("{first_error}; repair attempt failed: {second_error}"))
+    })
+}
+
+fn call_openai_compatible_chat(
+    settings: &ProviderSettings,
+    prompt: &str,
+) -> Result<String, String> {
+    let api_key = settings
+        .api_key
+        .as_ref()
+        .ok_or_else(|| "API key is required for this provider".to_string())?;
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {api_key}"))
+            .map_err(|error| format!("provider API key could not be used: {error}"))?,
+    );
+
+    let response: Value = Client::new()
+        .post(format!("{}/chat/completions", provider_base_url(settings)))
+        .headers(headers)
+        .json(&json!({
+            "model": settings.chat_model,
+            "temperature": 0.1,
+            "response_format": { "type": "json_object" },
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You distil raw developer captures into strict JSON only. Preserve raw user input by summarising beside it; do not rewrite it."
+                },
+                { "role": "user", "content": prompt }
+            ]
+        }))
+        .send()
+        .map_err(|error| format!("provider request failed: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("provider returned an error: {error}"))?
+        .json()
+        .map_err(|error| format!("provider response was not JSON: {error}"))?;
+
+    response["choices"][0]["message"]["content"]
+        .as_str()
+        .map(|content| content.to_string())
+        .ok_or_else(|| "provider response did not include message content".to_string())
+}
+
+fn call_ollama_chat(settings: &ProviderSettings, prompt: &str) -> Result<String, String> {
+    let response: Value = Client::new()
+        .post(format!("{}/api/chat", provider_base_url(settings)))
+        .json(&json!({
+            "model": settings.chat_model,
+            "stream": false,
+            "format": "json",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You distil raw developer captures into strict JSON only. Preserve raw user input by summarising beside it; do not rewrite it."
+                },
+                { "role": "user", "content": prompt }
+            ]
+        }))
+        .send()
+        .map_err(|error| format!("Ollama request failed: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("Ollama returned an error: {error}"))?
+        .json()
+        .map_err(|error| format!("Ollama response was not JSON: {error}"))?;
+
+    response["message"]["content"]
+        .as_str()
+        .map(|content| content.to_string())
+        .ok_or_else(|| "Ollama response did not include message content".to_string())
+}
+
+fn parse_extraction_json(content: &str) -> Result<ExtractionResult, String> {
+    serde_json::from_str(content).map_err(|error| format!("extraction JSON was invalid: {error}"))
+}
+
+fn extraction_prompt(capture: &Capture, projects: &[ProjectOption]) -> String {
+    let project_names = if projects.is_empty() {
+        "No existing projects are available.".to_string()
+    } else {
+        projects
+            .iter()
+            .map(|project| format!("- {}", project.name))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    format!(
+        r#"Return one JSON object matching this shape:
+{{
+  "title": "short capture title",
+  "summary": "2-4 sentence technical summary",
+  "captureType": "note | url | code | terminal | ai_chat | github_issue",
+  "suggestedProject": "matching existing project name or concise new project suggestion, or null",
+  "insights": [{{"title": "insight", "summary": "why it matters"}}],
+  "tasks": [{{"title": "task", "description": "optional detail"}}],
+  "decisions": [{{"title": "decision title", "context": "context", "decision": "decision", "rationale": "rationale"}}],
+  "questions": [{{"question": "open question", "answer": null}}],
+  "sources": [{{"title": "source title", "sourceType": "url | repo | docs | message | terminal | text", "url": "https://...", "rawReference": "pasted reference"}}],
+  "codeSnippetsOrPrompts": [{{"title": "saved snippet or prompt", "text": "short extract"}}],
+  "artefactSuggestions": [{{"title": "artefact type", "text": "why this capture could become it"}}]
+}}
+
+Rules:
+- Return JSON only.
+- Use empty arrays when no items exist.
+- Preserve the raw capture by extracting structure beside it.
+- Prefer developer-native categories: insight, task, decision, question, source, code snippet or prompt worth saving, artefact suggestion.
+- Suggested project should match one of the existing project names when that is clearly right.
+
+Existing projects:
+{project_names}
+
+Raw capture metadata:
+- current title: {}
+- capture type: {}
+- source kind: {}
+- source: {}
+
+Raw capture:
+{}"#,
+        capture.title.as_deref().unwrap_or("Untitled capture"),
+        capture.capture_type,
+        capture.source_kind,
+        capture.source.as_deref().unwrap_or("None"),
+        capture.raw_text
+    )
 }
 
 #[tauri::command]
@@ -344,7 +806,7 @@ fn create_capture(
     let id = now_id();
     let title = fallback_title(&raw_text);
 
-    with_database(state, |connection| {
+    with_database(&state, |connection| {
         connection
             .execute(
                 "INSERT INTO captures (
@@ -379,7 +841,7 @@ fn list_captures(
     state: tauri::State<'_, AppState>,
     status: Option<String>,
 ) -> Result<Vec<Capture>, String> {
-    with_database(state, |connection| {
+    with_database(&state, |connection| {
         let mut statement = connection
             .prepare(
                 "SELECT
@@ -391,8 +853,11 @@ fn list_captures(
                    source_kind,
                    source,
                    status,
+                   processing_status,
+                   processing_error,
                    project_id,
                    suggested_project_id,
+                   suggested_project_name,
                    created_at,
                    updated_at,
                    processed_at,
@@ -415,24 +880,7 @@ fn list_captures(
 
 #[tauri::command]
 fn list_projects(state: tauri::State<'_, AppState>) -> Result<Vec<ProjectOption>, String> {
-    with_database(state, |connection| {
-        let mut statement = connection
-            .prepare("SELECT id, name FROM projects WHERE status = 'active' ORDER BY name ASC")
-            .map_err(|error| format!("could not prepare project list query: {error}"))?;
-
-        let projects = statement
-            .query_map([], |row| {
-                Ok(ProjectOption {
-                    id: row.get("id")?,
-                    name: row.get("name")?,
-                })
-            })
-            .map_err(|error| format!("could not query projects: {error}"))?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| format!("could not read projects: {error}"))?;
-
-        Ok(projects)
-    })
+    with_database(&state, load_project_options)
 }
 
 #[tauri::command]
@@ -445,7 +893,7 @@ fn update_capture_status(
         return Err("unsupported capture status".to_string());
     }
 
-    with_database(state, |connection| {
+    with_database(&state, |connection| {
         connection
             .execute(
                 "UPDATE captures
@@ -469,7 +917,7 @@ fn update_capture_project(
     id: String,
     project_id: Option<String>,
 ) -> Result<Capture, String> {
-    with_database(state, |connection| {
+    with_database(&state, |connection| {
         connection
             .execute(
                 "UPDATE captures
@@ -481,6 +929,135 @@ fn update_capture_project(
 
         get_capture(connection, &id)
     })
+}
+
+#[tauri::command]
+fn get_provider_settings(
+    state: tauri::State<'_, AppState>,
+) -> Result<ProviderSettingsView, String> {
+    with_database(&state, |connection| {
+        load_provider_settings(connection).map(sanitize_provider_settings)
+    })
+}
+
+#[tauri::command]
+fn save_provider_settings(
+    state: tauri::State<'_, AppState>,
+    input: ProviderSettings,
+) -> Result<ProviderSettingsView, String> {
+    with_database(&state, |connection| {
+        save_provider_settings_value(connection, input).map(sanitize_provider_settings)
+    })
+}
+
+#[tauri::command]
+fn test_provider_settings(
+    state: tauri::State<'_, AppState>,
+    input: ProviderSettings,
+) -> Result<ProviderTestResult, String> {
+    let settings = with_database(&state, |connection| {
+        let existing =
+            load_provider_settings(connection).unwrap_or_else(|_| default_provider_settings());
+        let merged = ProviderSettings {
+            provider_type: input.provider_type,
+            base_url: normalize_optional_url(input.base_url).or(existing.base_url),
+            api_key: normalize_secret(input.api_key).or(existing.api_key),
+            chat_model: input.chat_model.trim().to_string(),
+            embedding_model: normalize_optional_text(input.embedding_model),
+            ollama_base_url: normalize_optional_url(input.ollama_base_url)
+                .or(existing.ollama_base_url),
+        };
+        validate_provider_settings(&merged)?;
+        Ok(merged)
+    })?;
+
+    let test_capture = Capture {
+        id: "provider_test".to_string(),
+        raw_text: "Health check: extract one title and summary from this developer capture."
+            .to_string(),
+        title: Some("Provider test".to_string()),
+        summary: None,
+        capture_type: "note".to_string(),
+        source_kind: "typed".to_string(),
+        source: None,
+        status: "unprocessed".to_string(),
+        processing_status: "idle".to_string(),
+        processing_error: None,
+        project_id: None,
+        suggested_project_id: None,
+        suggested_project_name: None,
+        created_at: String::new(),
+        updated_at: String::new(),
+        processed_at: None,
+        archived_at: None,
+    };
+
+    call_provider_for_extraction(&settings, &test_capture, &[])?;
+
+    Ok(ProviderTestResult {
+        ok: true,
+        message: "Provider returned valid structured JSON.".to_string(),
+    })
+}
+
+#[tauri::command]
+fn get_capture_distillation(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<CaptureDistillation, String> {
+    with_database(&state, |connection| {
+        load_capture_distillation(connection, &id)
+    })
+}
+
+#[tauri::command]
+fn process_capture(
+    state: tauri::State<'_, AppState>,
+    id: String,
+) -> Result<CaptureDistillation, String> {
+    let (settings, capture, projects) = with_database(&state, |connection| {
+        connection
+            .execute(
+                "UPDATE captures
+                 SET processing_status = 'processing',
+                     processing_error = NULL,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?1",
+                [&id],
+            )
+            .map_err(|error| format!("could not mark capture as processing: {error}"))?;
+
+        Ok((
+            load_provider_settings(connection)?,
+            get_capture(connection, &id)?,
+            load_project_options(connection)?,
+        ))
+    })?;
+
+    match call_provider_for_extraction(&settings, &capture, &projects) {
+        Ok(extraction) => with_database_mut(&state, |connection| {
+            persist_extraction(connection, &id, extraction, &projects)
+        }),
+        Err(error) => {
+            let _ = with_database(&state, |connection| {
+                connection
+                    .execute(
+                        "UPDATE captures
+                         SET processing_status = 'failed',
+                             processing_error = ?2,
+                             updated_at = CURRENT_TIMESTAMP
+                         WHERE id = ?1",
+                        params![id, error],
+                    )
+                    .map_err(|update_error| {
+                        format!("could not persist processing error: {update_error}")
+                    })?;
+                Ok(())
+            });
+
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -500,8 +1077,11 @@ fn get_capture(connection: &Connection, id: &str) -> Result<Capture, String> {
                source_kind,
                source,
                status,
+               processing_status,
+               processing_error,
                project_id,
                suggested_project_id,
+               suggested_project_name,
                created_at,
                updated_at,
                processed_at,
@@ -512,6 +1092,364 @@ fn get_capture(connection: &Connection, id: &str) -> Result<Capture, String> {
             capture_from_row,
         )
         .map_err(|error| format!("could not load capture: {error}"))
+}
+
+fn load_project_options(connection: &Connection) -> Result<Vec<ProjectOption>, String> {
+    let mut statement = connection
+        .prepare("SELECT id, name FROM projects WHERE status = 'active' ORDER BY name ASC")
+        .map_err(|error| format!("could not prepare project list query: {error}"))?;
+
+    let rows = statement
+        .query_map([], |row| {
+            Ok(ProjectOption {
+                id: row.get("id")?,
+                name: row.get("name")?,
+            })
+        })
+        .map_err(|error| format!("could not query projects: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("could not read projects: {error}"))?;
+
+    Ok(rows)
+}
+
+fn load_capture_distillation(
+    connection: &Connection,
+    id: &str,
+) -> Result<CaptureDistillation, String> {
+    Ok(CaptureDistillation {
+        capture: get_capture(connection, id)?,
+        tasks: load_distilled_tasks(connection, id)?,
+        decisions: load_distilled_decisions(connection, id)?,
+        questions: load_distilled_questions(connection, id)?,
+        sources: load_distilled_sources(connection, id)?,
+    })
+}
+
+fn load_distilled_tasks(
+    connection: &Connection,
+    capture_id: &str,
+) -> Result<Vec<DistilledTask>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, title, description, status
+             FROM tasks
+             WHERE capture_id = ?1
+             ORDER BY datetime(created_at) ASC, id ASC",
+        )
+        .map_err(|error| format!("could not prepare task query: {error}"))?;
+
+    let rows = statement
+        .query_map([capture_id], |row| {
+            Ok(DistilledTask {
+                id: row.get("id")?,
+                title: row.get("title")?,
+                description: row.get("description")?,
+                status: row.get("status")?,
+            })
+        })
+        .map_err(|error| format!("could not query tasks: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("could not read tasks: {error}"))?;
+
+    Ok(rows)
+}
+
+fn load_distilled_decisions(
+    connection: &Connection,
+    capture_id: &str,
+) -> Result<Vec<DistilledDecision>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, title, context, decision, rationale, status
+             FROM decisions
+             WHERE capture_id = ?1
+             ORDER BY datetime(created_at) ASC, id ASC",
+        )
+        .map_err(|error| format!("could not prepare decision query: {error}"))?;
+
+    let rows = statement
+        .query_map([capture_id], |row| {
+            Ok(DistilledDecision {
+                id: row.get("id")?,
+                title: row.get("title")?,
+                context: row.get("context")?,
+                decision: row.get("decision")?,
+                rationale: row.get("rationale")?,
+                status: row.get("status")?,
+            })
+        })
+        .map_err(|error| format!("could not query decisions: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("could not read decisions: {error}"))?;
+
+    Ok(rows)
+}
+
+fn load_distilled_questions(
+    connection: &Connection,
+    capture_id: &str,
+) -> Result<Vec<DistilledQuestion>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, question, answer, status
+             FROM questions
+             WHERE capture_id = ?1
+             ORDER BY datetime(created_at) ASC, id ASC",
+        )
+        .map_err(|error| format!("could not prepare question query: {error}"))?;
+
+    let rows = statement
+        .query_map([capture_id], |row| {
+            Ok(DistilledQuestion {
+                id: row.get("id")?,
+                question: row.get("question")?,
+                answer: row.get("answer")?,
+                status: row.get("status")?,
+            })
+        })
+        .map_err(|error| format!("could not query questions: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("could not read questions: {error}"))?;
+
+    Ok(rows)
+}
+
+fn load_distilled_sources(
+    connection: &Connection,
+    capture_id: &str,
+) -> Result<Vec<DistilledSource>, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, title, source_type, url, raw_reference
+             FROM sources
+             WHERE capture_id = ?1
+             ORDER BY datetime(created_at) ASC, id ASC",
+        )
+        .map_err(|error| format!("could not prepare source query: {error}"))?;
+
+    let rows = statement
+        .query_map([capture_id], |row| {
+            Ok(DistilledSource {
+                id: row.get("id")?,
+                title: row.get("title")?,
+                source_type: row.get("source_type")?,
+                url: row.get("url")?,
+                raw_reference: row.get("raw_reference")?,
+            })
+        })
+        .map_err(|error| format!("could not query sources: {error}"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("could not read sources: {error}"))?;
+
+    Ok(rows)
+}
+
+fn persist_extraction(
+    connection: &mut Connection,
+    capture_id: &str,
+    extraction: ExtractionResult,
+    projects: &[ProjectOption],
+) -> Result<CaptureDistillation, String> {
+    let transaction = connection
+        .transaction()
+        .map_err(|error| format!("could not start extraction transaction: {error}"))?;
+
+    transaction
+        .execute("DELETE FROM tasks WHERE capture_id = ?1", [capture_id])
+        .map_err(|error| format!("could not replace extracted tasks: {error}"))?;
+    transaction
+        .execute("DELETE FROM decisions WHERE capture_id = ?1", [capture_id])
+        .map_err(|error| format!("could not replace extracted decisions: {error}"))?;
+    transaction
+        .execute("DELETE FROM questions WHERE capture_id = ?1", [capture_id])
+        .map_err(|error| format!("could not replace extracted questions: {error}"))?;
+    transaction
+        .execute("DELETE FROM sources WHERE capture_id = ?1", [capture_id])
+        .map_err(|error| format!("could not replace extracted sources: {error}"))?;
+
+    let suggested_project_name = normalize_optional_text(extraction.suggested_project.clone());
+    let suggested_project_id = suggested_project_name
+        .as_deref()
+        .and_then(|name| match_project_id(projects, name));
+    let title =
+        normalize_optional_text(extraction.title).unwrap_or_else(|| "Untitled capture".to_string());
+    let summary = normalize_optional_text(extraction.summary);
+    let capture_type =
+        normalize_optional_text(extraction.capture_type).unwrap_or_else(|| "note".to_string());
+
+    transaction
+        .execute(
+            "UPDATE captures
+             SET title = ?2,
+                 summary = ?3,
+                 capture_type = ?4,
+                 status = 'processed',
+                 processing_status = 'succeeded',
+                 processing_error = NULL,
+                 suggested_project_id = ?5,
+                 suggested_project_name = ?6,
+                 processed_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?1",
+            params![
+                capture_id,
+                title,
+                summary,
+                capture_type,
+                suggested_project_id,
+                suggested_project_name
+            ],
+        )
+        .map_err(|error| format!("could not update processed capture: {error}"))?;
+
+    for task in extraction.tasks.unwrap_or_default() {
+        if task.title.trim().is_empty() {
+            continue;
+        }
+
+        transaction
+            .execute(
+                "INSERT INTO tasks (id, capture_id, title, description, status)
+                 VALUES (?1, ?2, ?3, ?4, 'open')",
+                params![
+                    make_id("task"),
+                    capture_id,
+                    task.title.trim(),
+                    normalize_optional_text(task.description)
+                ],
+            )
+            .map_err(|error| format!("could not save extracted task: {error}"))?;
+    }
+
+    for decision in extraction.decisions.unwrap_or_default() {
+        if decision.title.trim().is_empty() || decision.decision.trim().is_empty() {
+            continue;
+        }
+
+        transaction
+            .execute(
+                "INSERT INTO decisions (id, capture_id, title, context, decision, rationale, status)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'proposed')",
+                params![
+                    make_id("decision"),
+                    capture_id,
+                    decision.title.trim(),
+                    normalize_optional_text(decision.context),
+                    decision.decision.trim(),
+                    normalize_optional_text(decision.rationale)
+                ],
+            )
+            .map_err(|error| format!("could not save extracted decision: {error}"))?;
+    }
+
+    for question in extraction.questions.unwrap_or_default() {
+        if question.question.trim().is_empty() {
+            continue;
+        }
+
+        transaction
+            .execute(
+                "INSERT INTO questions (id, capture_id, question, answer, status)
+                 VALUES (?1, ?2, ?3, ?4, 'open')",
+                params![
+                    make_id("question"),
+                    capture_id,
+                    question.question.trim(),
+                    normalize_optional_text(question.answer)
+                ],
+            )
+            .map_err(|error| format!("could not save extracted question: {error}"))?;
+    }
+
+    for source in extraction.sources.unwrap_or_default() {
+        let title = source
+            .title
+            .and_then(|title| normalize_optional_text(Some(title)))
+            .or_else(|| source.url.clone())
+            .or_else(|| source.raw_reference.clone())
+            .unwrap_or_else(|| "Source reference".to_string());
+
+        transaction
+            .execute(
+                "INSERT INTO sources (id, capture_id, title, source_type, url, raw_reference)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    make_id("source"),
+                    capture_id,
+                    title,
+                    normalize_optional_text(source.source_type)
+                        .unwrap_or_else(|| "text".to_string()),
+                    normalize_optional_url(source.url),
+                    normalize_optional_text(source.raw_reference)
+                ],
+            )
+            .map_err(|error| format!("could not save extracted source: {error}"))?;
+    }
+
+    for insight in extraction.insights.unwrap_or_default() {
+        let title = normalize_optional_text(insight.title).unwrap_or_else(|| "Insight".to_string());
+        transaction
+            .execute(
+                "INSERT INTO sources (id, capture_id, title, source_type, raw_reference)
+                 VALUES (?1, ?2, ?3, 'insight', ?4)",
+                params![
+                    make_id("source"),
+                    capture_id,
+                    title,
+                    normalize_optional_text(insight.summary)
+                ],
+            )
+            .map_err(|error| format!("could not save extracted insight: {error}"))?;
+    }
+
+    for item in extraction.code_snippets_or_prompts.unwrap_or_default() {
+        let title =
+            normalize_optional_text(item.title).unwrap_or_else(|| "Code or prompt".to_string());
+        transaction
+            .execute(
+                "INSERT INTO sources (id, capture_id, title, source_type, raw_reference)
+                 VALUES (?1, ?2, ?3, 'prompt_or_snippet', ?4)",
+                params![
+                    make_id("source"),
+                    capture_id,
+                    title,
+                    normalize_optional_text(item.text)
+                ],
+            )
+            .map_err(|error| format!("could not save extracted snippet: {error}"))?;
+    }
+
+    for item in extraction.artefact_suggestions.unwrap_or_default() {
+        let title = normalize_optional_text(item.title)
+            .unwrap_or_else(|| "Artefact suggestion".to_string());
+        transaction
+            .execute(
+                "INSERT INTO sources (id, capture_id, title, source_type, raw_reference)
+                 VALUES (?1, ?2, ?3, 'artefact_suggestion', ?4)",
+                params![
+                    make_id("source"),
+                    capture_id,
+                    title,
+                    normalize_optional_text(item.text)
+                ],
+            )
+            .map_err(|error| format!("could not save extracted artefact suggestion: {error}"))?;
+    }
+
+    transaction
+        .commit()
+        .map_err(|error| format!("could not commit extraction results: {error}"))?;
+
+    load_capture_distillation(connection, capture_id)
+}
+
+fn match_project_id(projects: &[ProjectOption], name: &str) -> Option<String> {
+    let normalized = name.trim().to_lowercase();
+    projects
+        .iter()
+        .find(|project| project.name.trim().to_lowercase() == normalized)
+        .map(|project| project.id.clone())
 }
 
 fn show_quick_capture_window(app: &tauri::AppHandle) -> Result<(), String> {
@@ -612,6 +1550,11 @@ pub fn run() {
             list_projects,
             update_capture_status,
             update_capture_project,
+            get_provider_settings,
+            save_provider_settings,
+            test_provider_settings,
+            get_capture_distillation,
+            process_capture,
             show_quick_capture
         ])
         .build(tauri::generate_context!())
@@ -636,7 +1579,7 @@ mod tests {
         assert!(database.database_path.exists());
         assert_eq!(
             database.latest_migration.as_deref(),
-            Some("0001_capture_inbox")
+            Some("0002_ai_provider_distillation")
         );
 
         let table_count: i64 = database
@@ -665,12 +1608,20 @@ mod tests {
             .connection
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('captures')
-                 WHERE name IN ('raw_text', 'project_id', 'source_kind', 'source')",
+                 WHERE name IN (
+                   'raw_text',
+                   'project_id',
+                   'source_kind',
+                   'source',
+                   'processing_status',
+                   'processing_error',
+                   'suggested_project_name'
+                 )",
                 [],
                 |row| row.get(0),
             )
             .expect("capture inbox columns are queryable");
 
-        assert_eq!(has_capture_columns, 4);
+        assert_eq!(has_capture_columns, 7);
     }
 }

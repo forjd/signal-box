@@ -623,6 +623,7 @@ Provider strategy:
 - v1 is BYOK-only.
 - Support OpenAI-compatible API providers, including OpenAI and OpenRouter.
 - Support local Ollama-compatible models where practical.
+- Store alpha provider settings locally in SQLite; saved API keys are treated as secret settings and are not echoed back to the UI, but platform keychain storage is still a hardening item.
 - Keep model/provider-specific code behind a small abstraction so extraction, embeddings, search, and artefact generation do not depend directly on one vendor SDK.
 
 UI strategy:

@@ -21,12 +21,15 @@ export const captures = sqliteTable(
     sourceKind: text("source_kind").notNull().default("typed"),
     source: text("source"),
     status: text("status").notNull().default("unprocessed"),
+    processingStatus: text("processing_status").notNull().default("idle"),
+    processingError: text("processing_error"),
     projectId: text("project_id").references(() => projects.id, {
       onDelete: "set null",
     }),
     suggestedProjectId: text("suggested_project_id").references(() => projects.id, {
       onDelete: "set null",
     }),
+    suggestedProjectName: text("suggested_project_name"),
     processedAt: text("processed_at"),
     archivedAt: text("archived_at"),
     ...timestamps,
@@ -36,6 +39,7 @@ export const captures = sqliteTable(
     index("captures_project_idx").on(table.projectId),
     index("captures_suggested_project_idx").on(table.suggestedProjectId),
     index("captures_source_kind_idx").on(table.sourceKind),
+    index("captures_processing_status_idx").on(table.processingStatus),
   ],
 );
 

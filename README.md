@@ -170,6 +170,8 @@ bun run tauri dev
 
 During desktop development, `CommandOrControl+Shift+Space` opens the dedicated quick-capture popover. Captures are saved as raw text in SQLite, can remain unassigned, and appear in the unprocessed inbox until archived or later processed.
 
+AI distillation is BYOK. Configure OpenAI, OpenRouter, or a local Ollama-compatible endpoint from Settings, then use the provider test before processing captures. Processing preserves the raw capture and saves extracted title, summary, type, tasks, decisions, open questions, source-like references, and a suggested project beside it.
+
 Build:
 
 ```bash
@@ -193,7 +195,9 @@ bun run ui:add button
 
 Signal Box initializes a local SQLite database on desktop app startup. The database is stored in the platform app data directory as `signal-box.sqlite3`, and the Settings screen exposes the resolved path and latest applied migration for troubleshooting.
 
-The Drizzle schema lives at `src/db/schema.ts`. Generated SQL migrations live in `src-tauri/migrations/` and are applied by the Tauri backend before the frontend checks database health. Capture records preserve `raw_text` and store assignment, source, type, status, and processing/archive metadata beside it.
+The Drizzle schema lives at `src/db/schema.ts`. Generated SQL migrations live in `src-tauri/migrations/` and are applied by the Tauri backend before the frontend checks database health. Capture records preserve `raw_text` and store assignment, source, type, status, provider processing state, and processing/archive metadata beside it.
+
+Provider settings are stored locally in SQLite under the `settings` table. The alpha marks provider settings as secret records and never echoes saved API keys back to the UI, but platform keychain storage is not yet implemented.
 
 ## Docs
 

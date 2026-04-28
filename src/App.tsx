@@ -1,20 +1,23 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
+  CheckCircle2,
   ExternalLink,
   Inbox,
   PanelTopOpen,
   RefreshCw,
   Save,
+  Settings2,
   Sparkles,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast, Toaster } from "sonner";
 
 import { EmptyState, ErrorState, LoadingState } from "@/components/common/state-views";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -26,18 +29,31 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createCapture,
+  getCaptureDistillation,
   getAppMetadata,
   getDatabaseHealth,
+  getProviderSettings,
   listCaptures,
   listProjects,
+  processCapture,
+  saveProviderSettings,
   showQuickCapture,
+  testProviderSettings,
   updateCaptureProject,
   updateCaptureStatus,
   type AppMetadata,
   type Capture,
+  type CaptureDistillation,
   type CaptureStatus,
   type CaptureType,
   type DatabaseHealth,
+  type DistilledDecision,
+  type DistilledQuestion,
+  type DistilledSource,
+  type DistilledTask,
+  type ProviderSettings,
+  type ProviderSettingsInput,
+  type ProviderType,
   type ProjectOption,
   type SourceKind,
 } from "./lib/tauri";
@@ -115,6 +131,12 @@ const sourceKindLabels: Record<SourceKind, string> = {
   terminal: "Terminal",
   ai_chat: "AI chat",
   github: "GitHub",
+};
+
+const providerTypeLabels: Record<ProviderType, string> = {
+  openai: "OpenAI",
+  openrouter: "OpenRouter",
+  ollama: "Ollama",
 };
 
 function App() {
@@ -223,6 +245,17 @@ function MainWindow() {
     }
   }
 
+  const replaceCapture = useCallback((updated: Capture) => {
+    setCaptures((current) =>
+      current.status === "ready"
+        ? {
+            status: "ready",
+            data: current.data.map((capture) => (capture.id === updated.id ? updated : capture)),
+          }
+        : current,
+    );
+  }, []);
+
   return (
     <main className="app-shell">
       <Toaster richColors position="bottom-right" />
@@ -284,6 +317,7 @@ function MainWindow() {
             onSelect={setSelectedCaptureId}
             onStatusChange={changeCaptureStatus}
             onProjectChange={changeCaptureProject}
+            onCaptureChange={replaceCapture}
           />
         )}
         {activeRoute !== "settings" && activeRoute !== "inbox" && (
@@ -321,21 +355,24 @@ function QuickCaptureWindow() {
     setCaptureType(detectCapture(rawText).captureType);
   }, [rawText]);
 
-  async function save(autoClose: boolean) {
+  async function save(autoClose: boolean, processAfter = false) {
     setError(null);
     setSaving(true);
 
     try {
       const detection = detectCapture(rawText);
-      await createCapture({
+      const saved = await createCapture({
         rawText,
         captureType,
         sourceKind: detection.sourceKind,
         source: detection.source,
         projectId,
       });
+      if (processAfter) {
+        await processCapture(saved.id);
+      }
       setRawText("");
-      toast.success("Capture saved");
+      toast.success(processAfter ? "Capture saved and distilled" : "Capture saved");
 
       if (autoClose) {
         await currentWindow.hide();
@@ -406,8 +443,7 @@ function QuickCaptureWindow() {
           variant="secondary"
           disabled={!rawText.trim() || saving}
           onClick={() => {
-            toast.info("AI processing arrives in the next phase. Raw capture saved instead.");
-            save(false);
+            save(false, true);
           }}
         >
           <Sparkles aria-hidden="true" />
@@ -432,6 +468,7 @@ function InboxView({
   onSelect,
   onStatusChange,
   onProjectChange,
+  onCaptureChange,
 }: {
   captures: LoadState<Capture[]>;
   projects: LoadState<ProjectOption[]>;
@@ -442,6 +479,7 @@ function InboxView({
   onSelect: (id: string) => void;
   onStatusChange: (id: string, status: CaptureStatus) => void;
   onProjectChange: (id: string, projectId: string | null) => void;
+  onCaptureChange: (capture: Capture) => void;
 }) {
   if (captures.status === "loading") {
     return <LoadingState label="Loading capture inbox" />;
@@ -513,6 +551,7 @@ function InboxView({
           onArchive={onArchive}
           onStatusChange={onStatusChange}
           onProjectChange={onProjectChange}
+          onCaptureChange={onCaptureChange}
         />
       )}
     </div>
@@ -525,14 +564,63 @@ function CaptureDetail({
   onArchive,
   onStatusChange,
   onProjectChange,
+  onCaptureChange,
 }: {
   capture: Capture;
   projects: LoadState<ProjectOption[]>;
   onArchive: (id: string) => void;
   onStatusChange: (id: string, status: CaptureStatus) => void;
   onProjectChange: (id: string, projectId: string | null) => void;
+  onCaptureChange: (capture: Capture) => void;
 }) {
   const projectOptions = projects.status === "ready" ? projects.data : [];
+  const [distillation, setDistillation] = useState<LoadState<CaptureDistillation>>({
+    status: "loading",
+  });
+  const [processing, setProcessing] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDistillation({ status: "loading" });
+
+    getCaptureDistillation(capture.id)
+      .then((result) => {
+        if (!cancelled) {
+          setDistillation({ status: "ready", data: result });
+          onCaptureChange(result.capture);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setDistillation({
+            status: "error",
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [capture.id, onCaptureChange]);
+
+  async function runProcessing() {
+    setProcessing(true);
+    setDistillation({ status: "loading" });
+
+    try {
+      const result = await processCapture(capture.id);
+      setDistillation({ status: "ready", data: result });
+      onCaptureChange(result.capture);
+      toast.success("Capture distilled");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setDistillation({ status: "error", message });
+      toast.error(message);
+    } finally {
+      setProcessing(false);
+    }
+  }
 
   return (
     <section className="capture-detail" aria-label="Capture detail">
@@ -541,10 +629,16 @@ function CaptureDetail({
           <p className="eyebrow">Raw capture</p>
           <h2>{capture.title || fallbackTitle(capture.rawText)}</h2>
         </div>
-        <Button type="button" variant="outline" onClick={() => onArchive(capture.id)}>
-          <Archive aria-hidden="true" />
-          Archive
-        </Button>
+        <div className="detail-actions">
+          <Button type="button" onClick={runProcessing} disabled={processing}>
+            <Sparkles aria-hidden="true" />
+            {processing ? "Processing" : "Process"}
+          </Button>
+          <Button type="button" variant="outline" onClick={() => onArchive(capture.id)}>
+            <Archive aria-hidden="true" />
+            Archive
+          </Button>
+        </div>
       </header>
 
       <div className="detail-controls">
@@ -578,8 +672,9 @@ function CaptureDetail({
       <div className="metadata-strip">
         <Badge variant="secondary">{captureTypeLabels[capture.captureType]}</Badge>
         <Badge variant="outline">{sourceKindLabels[capture.sourceKind]}</Badge>
-        <Badge variant="outline">
-          {capture.suggestedProjectId ? "Suggested project pending" : "No project suggestion"}
+        <Badge variant="outline">{capture.suggestedProjectName ?? "No project suggestion"}</Badge>
+        <Badge variant={capture.processingStatus === "failed" ? "destructive" : "secondary"}>
+          {capture.processingStatus}
         </Badge>
         {capture.source && (
           <span className="source-link">
@@ -589,7 +684,15 @@ function CaptureDetail({
         )}
       </div>
 
+      {capture.processingError && (
+        <div className="detail-alert">
+          <ErrorState title="Processing failed" message={capture.processingError} compact />
+        </div>
+      )}
+
       <pre className="raw-capture">{capture.rawText}</pre>
+
+      <DistillationReview state={distillation} />
 
       <dl className="detail-list compact-list">
         <div>
@@ -610,6 +713,132 @@ function CaptureDetail({
         </div>
       </dl>
     </section>
+  );
+}
+
+function DistillationReview({ state }: { state: LoadState<CaptureDistillation> }) {
+  if (state.status === "loading") {
+    return (
+      <section className="distillation-panel">
+        <LoadingState label="Loading extracted objects" compact />
+      </section>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <section className="distillation-panel">
+        <ErrorState title="Extraction unavailable" message={state.message} compact />
+      </section>
+    );
+  }
+
+  const { capture, tasks, decisions, questions, sources } = state.data;
+  const hasObjects =
+    tasks.length > 0 || decisions.length > 0 || questions.length > 0 || sources.length > 0;
+
+  return (
+    <section className="distillation-panel" aria-label="Extracted objects">
+      <div className="distillation-header">
+        <div>
+          <p className="eyebrow">Distilled memory</p>
+          <h3>{capture.summary ? "Structured extraction" : "No extraction yet"}</h3>
+        </div>
+        {capture.processedAt && (
+          <Badge variant="secondary">
+            <CheckCircle2 aria-hidden="true" />
+            Processed
+          </Badge>
+        )}
+      </div>
+
+      {capture.summary && <p className="distillation-summary">{capture.summary}</p>}
+
+      {!hasObjects && (
+        <p className="muted-copy">
+          Process this capture to save tasks, decisions, questions, and sources beside the raw text.
+        </p>
+      )}
+
+      <div className="distillation-grid">
+        <ObjectGroup title="Tasks" items={tasks} renderItem={(task) => <TaskItem task={task} />} />
+        <ObjectGroup
+          title="Decisions"
+          items={decisions}
+          renderItem={(decision) => <DecisionItem decision={decision} />}
+        />
+        <ObjectGroup
+          title="Questions"
+          items={questions}
+          renderItem={(question) => <QuestionItem question={question} />}
+        />
+        <ObjectGroup
+          title="Sources"
+          items={sources}
+          renderItem={(source) => <SourceItem source={source} />}
+        />
+      </div>
+    </section>
+  );
+}
+
+function ObjectGroup<T>({
+  title,
+  items,
+  renderItem,
+}: {
+  title: string;
+  items: T[];
+  renderItem: (item: T) => ReactNode;
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="object-group">
+      <h4>{title}</h4>
+      <div className="object-list">{items.map(renderItem)}</div>
+    </div>
+  );
+}
+
+function TaskItem({ task }: { task: DistilledTask }) {
+  return (
+    <article className="object-item" key={task.id}>
+      <strong>{task.title}</strong>
+      {task.description && <p>{task.description}</p>}
+    </article>
+  );
+}
+
+function DecisionItem({ decision }: { decision: DistilledDecision }) {
+  return (
+    <article className="object-item" key={decision.id}>
+      <strong>{decision.title}</strong>
+      <p>{decision.decision}</p>
+      {decision.rationale && <small>{decision.rationale}</small>}
+    </article>
+  );
+}
+
+function QuestionItem({ question }: { question: DistilledQuestion }) {
+  return (
+    <article className="object-item" key={question.id}>
+      <strong>{question.question}</strong>
+      {question.answer && <p>{question.answer}</p>}
+    </article>
+  );
+}
+
+function SourceItem({ source }: { source: DistilledSource }) {
+  return (
+    <article className="object-item" key={source.id}>
+      <strong>{source.title}</strong>
+      <Badge variant="outline">{source.sourceType}</Badge>
+      {source.url && <p>{source.url}</p>}
+      {source.rawReference && <small>{source.rawReference}</small>}
+    </article>
   );
 }
 
@@ -716,6 +945,8 @@ function SettingsView({
 }) {
   return (
     <div className="settings-grid">
+      <ProviderSettingsCard />
+
       <Card aria-labelledby="database-heading">
         <CardHeader>
           <CardTitle id="database-heading">Database</CardTitle>
@@ -795,6 +1026,198 @@ function SettingsView({
   );
 }
 
+function ProviderSettingsCard() {
+  const [state, setState] = useState<LoadState<ProviderSettings>>({ status: "loading" });
+  const [form, setForm] = useState<ProviderSettingsInput>({
+    providerType: "openai",
+    baseUrl: "https://api.openai.com/v1",
+    apiKey: "",
+    chatModel: "gpt-4.1-mini",
+    embeddingModel: "",
+    ollamaBaseUrl: "http://localhost:11434",
+  });
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testMessage, setTestMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    getProviderSettings()
+      .then((settings) => {
+        setState({ status: "ready", data: settings });
+        setForm(providerSettingsToInput(settings));
+      })
+      .catch((error) =>
+        setState({
+          status: "error",
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+  }, []);
+
+  async function saveSettings() {
+    setSaving(true);
+    setTestMessage(null);
+
+    try {
+      const settings = await saveProviderSettings(form);
+      setState({ status: "ready", data: settings });
+      setForm(providerSettingsToInput(settings));
+      toast.success("Provider settings saved");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function testSettings() {
+    setTesting(true);
+    setTestMessage(null);
+
+    try {
+      const result = await testProviderSettings(form);
+      setTestMessage(result.message);
+      toast.success(result.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setTestMessage(message);
+      toast.error(message);
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <Card className="provider-card" aria-labelledby="provider-heading">
+      <CardHeader>
+        <CardTitle id="provider-heading">AI Provider</CardTitle>
+      </CardHeader>
+      <Separator />
+      <CardContent>
+        {state.status === "loading" && <LoadingState label="Loading provider settings" />}
+        {state.status === "error" && (
+          <ErrorState title="Provider settings unavailable" message={state.message} />
+        )}
+        {state.status === "ready" && (
+          <div className="provider-settings">
+            <div className="provider-status">
+              <Badge variant="secondary">
+                <Settings2 aria-hidden="true" />
+                {providerTypeLabels[form.providerType]}
+              </Badge>
+              {state.data.hasApiKey && form.providerType !== "ollama" && (
+                <Badge variant="outline">API key saved</Badge>
+              )}
+            </div>
+
+            <div className="settings-form-grid">
+              <div className="form-field">
+                <span>Provider</span>
+                <Select
+                  value={form.providerType}
+                  onValueChange={(providerType) =>
+                    setForm((current) => providerDefaults(providerType as ProviderType, current))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(providerTypeLabels).map(([type, label]) => (
+                      <SelectItem key={type} value={type}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <label className="form-field" htmlFor="provider-chat-model">
+                <span>Chat model</span>
+                <Input
+                  id="provider-chat-model"
+                  value={form.chatModel}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, chatModel: event.target.value }))
+                  }
+                  placeholder="gpt-4.1-mini"
+                />
+              </label>
+
+              {form.providerType !== "ollama" && (
+                <>
+                  <label className="form-field" htmlFor="provider-base-url">
+                    <span>Base URL</span>
+                    <Input
+                      id="provider-base-url"
+                      value={form.baseUrl ?? ""}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, baseUrl: event.target.value }))
+                      }
+                      placeholder="https://api.openai.com/v1"
+                    />
+                  </label>
+                  <label className="form-field" htmlFor="provider-api-key">
+                    <span>API key</span>
+                    <Input
+                      id="provider-api-key"
+                      value={form.apiKey}
+                      type="password"
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, apiKey: event.target.value }))
+                      }
+                      placeholder={state.data.hasApiKey ? "Saved key preserved" : "sk-..."}
+                    />
+                  </label>
+                </>
+              )}
+
+              {form.providerType === "ollama" && (
+                <label className="form-field" htmlFor="provider-ollama-base-url">
+                  <span>Ollama base URL</span>
+                  <Input
+                    id="provider-ollama-base-url"
+                    value={form.ollamaBaseUrl ?? ""}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, ollamaBaseUrl: event.target.value }))
+                    }
+                    placeholder="http://localhost:11434"
+                  />
+                </label>
+              )}
+
+              <label className="form-field" htmlFor="provider-embedding-model">
+                <span>Embedding model</span>
+                <Input
+                  id="provider-embedding-model"
+                  value={form.embeddingModel ?? ""}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, embeddingModel: event.target.value }))
+                  }
+                  placeholder="Reserved for search"
+                />
+              </label>
+            </div>
+
+            {testMessage && <p className="provider-test-message">{testMessage}</p>}
+
+            <div className="provider-actions">
+              <Button type="button" onClick={saveSettings} disabled={saving}>
+                <Save aria-hidden="true" />
+                Save settings
+              </Button>
+              <Button type="button" variant="outline" onClick={testSettings} disabled={testing}>
+                <Sparkles aria-hidden="true" />
+                Test provider
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function detectCapture(rawText: string): {
   captureType: CaptureType;
   sourceKind: SourceKind;
@@ -824,6 +1247,47 @@ function detectCapture(rawText: string): {
   }
 
   return { captureType: "note", sourceKind: "typed", source: firstUrl };
+}
+
+function providerSettingsToInput(settings: ProviderSettings): ProviderSettingsInput {
+  return {
+    providerType: settings.providerType,
+    baseUrl: settings.baseUrl ?? "",
+    apiKey: "",
+    chatModel: settings.chatModel,
+    embeddingModel: settings.embeddingModel ?? "",
+    ollamaBaseUrl: settings.ollamaBaseUrl ?? "http://localhost:11434",
+  };
+}
+
+function providerDefaults(
+  providerType: ProviderType,
+  current: ProviderSettingsInput,
+): ProviderSettingsInput {
+  if (providerType === "openrouter") {
+    return {
+      ...current,
+      providerType,
+      baseUrl: "https://openrouter.ai/api/v1",
+      chatModel: current.chatModel || "openai/gpt-4.1-mini",
+    };
+  }
+
+  if (providerType === "ollama") {
+    return {
+      ...current,
+      providerType,
+      chatModel: current.chatModel || "llama3.1",
+      ollamaBaseUrl: current.ollamaBaseUrl || "http://localhost:11434",
+    };
+  }
+
+  return {
+    ...current,
+    providerType,
+    baseUrl: "https://api.openai.com/v1",
+    chatModel: current.chatModel || "gpt-4.1-mini",
+  };
 }
 
 function fallbackTitle(rawText: string) {
