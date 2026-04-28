@@ -33,9 +33,9 @@ Read these before making product or architecture decisions:
 Likely planned additions:
 
 - SQLite
-- a small typed SQL layer or Drizzle
-- provider abstraction for OpenAI/OpenRouter-compatible AI APIs
-- local embeddings/vector search if practical
+- Drizzle
+- provider abstraction for OpenAI/OpenRouter-compatible AI APIs and local Ollama
+- semantic search with local embeddings storage
 
 ## Development Commands
 
@@ -66,6 +66,7 @@ bun run dev
 ## Implementation Guidance
 
 - Keep changes scoped and aligned with the alpha scope in `docs/scope.md`.
+- When creating or updating planning documents, use the repo-local skill at `.codex/skills/write-signal-box-plans`.
 - Prefer simple, explicit data models over markdown-only storage.
 - Do not introduce sync, team features, mobile support, passive OS-wide capture, complex markdown editing, graph views, or plugin systems unless explicitly requested.
 - When adding AI features, keep provider-specific code behind a small abstraction.

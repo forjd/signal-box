@@ -1,0 +1,4 @@
+interface:
+  display_name: "Write Signal Box Plans"
+  short_description: "Create Signal Box phase plans"
+  default_prompt: "Use $write-signal-box-plans to create or update a Signal Box planning document and check it against docs/scope.md."
